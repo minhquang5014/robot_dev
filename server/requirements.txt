@@ -1,0 +1,8 @@
+requests>=2.31
+edge-tts>=6.1
+python-dotenv>=1.0
+
+# Chi can khi dung --record de thu am truc tiep tu micro may tinh.
+# Windows co wheel san, khong phai build gi.
+sounddevice>=0.4
+numpy>=1.24

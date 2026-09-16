@@ -16,3 +16,9 @@ sdkconfig.old
 .cache/
 *.pyc
 __pycache__/
+
+# ---- Khoa API ----
+.env
+
+# ---- Ket qua test pipeline ----
+server/out/
