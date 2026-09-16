@@ -1,0 +1,18 @@
+# ---- San pham build, deu tu sinh lai duoc ----
+build/
+managed_components/
+dependencies.lock
+sdkconfig.old
+*.bin
+*.elf
+*.map
+
+# ---- File ghi am thu ----
+*.wav
+
+# ---- Linh tinh ----
+.DS_Store
+.vscode/
+.cache/
+*.pyc
+__pycache__/
