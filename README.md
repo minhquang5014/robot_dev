@@ -131,32 +131,62 @@ Firmware nối ra ngoài theo **hai tầng**:
 giao thức, chạy Docker. Chuyển sang chỉ cần đổi `CONFIG_OTA_URL`, không phải sửa code.
 Yêu cầu tối thiểu 2 nhân / 2GB nếu chỉ gọi API ra ngoài.
 
-Bộ **miễn phí, có tiếng Việt**:
+#### Bộ miễn phí, có tiếng Việt
 
-| Tầng | Chọn | Ghi chú |
+> **Groq không phải Grok.** Hai công ty khác nhau. **Grok** là LLM của xAI, trả tiền.
+> **Groq** là công ty phần cứng suy luận, nổi tiếng vì tốc độ, và free tier rất rộng.
+> Nhầm hai cái này là mất tiền oan.
+
+| Tầng | Chọn | Hạn mức miễn phí |
 |---|---|---|
-| STT | Whisper self-host (faster-whisper) | **Đừng dùng FunASR** — tối ưu cho tiếng Trung |
-| LLM | Gemini free tier | Dự án ghi rõ có bậc miễn phí |
-| TTS | EdgeTTS, giọng `vi-VN-HoaiMyNeural` / `vi-VN-NamMinhNeural` | Miễn phí, giọng Việt tự nhiên |
+| STT | Groq `whisper-large-v3-turbo` | 2.000 req/ngày, 28.800 giây audio/ngày |
+| LLM | Groq `llama-3.1-8b-instant` | 14.400 req/ngày, 30 req/phút |
+| TTS | EdgeTTS, `vi-VN-HoaiMyNeural` / `vi-VN-NamMinhNeural` | Không giới hạn thực tế |
 
-Nếu muốn chất lượng suy luận cao hơn, **Grok làm LLM là cắm vào chạy luôn** — server
-nhận bất kỳ endpoint nào tương thích OpenAI, mà API chat của xAI đúng chuẩn đó.
+Tổng chi phí **$0/tháng**, không cần thẻ tín dụng. Robot để bàn dùng cỡ 200 lượt/ngày
+là cùng, tức dư khoảng 70 lần. Groq tương thích chuẩn OpenAI nên cắm thẳng vào khe LLM.
 
-Grok cũng có STT và TTS riêng (`https://api.x.ai/v1/tts`, $4.20 / 1 triệu ký tự —
-khoảng 5000 lượt đối đáp), nhưng server dùng danh sách provider cố định **không có
-xAI**, nên hai phần này phải tự viết adapter. Điểm cân bằng hợp lý: Grok cho LLM,
-EdgeTTS cho TTS.
+**Đừng dùng FunASR cho tiếng Việt** — nó tối ưu cho tiếng Trung. Muốn chạy STT
+hoàn toàn cục bộ thì dùng faster-whisper.
+
+Nếu cần suy luận mạnh hơn, **Grok (xAI) cắm được thẳng vào khe LLM** vì API chat của
+họ đúng chuẩn OpenAI. Grok cũng có STT/TTS riêng (`https://api.x.ai/v1/tts`,
+$4.20 / 1 triệu ký tự ~ 5000 lượt đối đáp) nhưng server dùng danh sách provider cố
+định **không có xAI**, nên hai phần đó phải tự viết adapter.
 
 **LiveKit không hợp ở đây.** Nó là hạ tầng WebRTC + điều phối agent, bản thân không
 phải nhà cung cấp STT. ESP32 nói giao thức riêng của xiaozhi chứ không phải WebRTC,
 nên ghép vào là phải viết cầu nối hai giao thức mà chẳng được gì thêm.
 
+#### Đặt server ở đâu
+
+ESP32 chỉ mở kết nối **đi ra** (y như nó đang gọi `api.tenclass.net`), nên:
+
+- **VPS có IP công cộng — dễ nhất.** Không cần mở port, không phụ thuộc mạng nội bộ.
+  Oracle Cloud Always Free cho 4 nhân ARM / 24GB vĩnh viễn là quá đủ, nhược điểm là
+  nhiều khu vực hay hết chỗ ARM, phải thử lại nhiều lần.
+- **Máy ở nhà — vướng mạng.** Chỉ chạy khi ESP32 **cùng mạng LAN**, hoặc bạn mở được
+  port ra ngoài. Nếu ESP32 đang bám hotspot điện thoại hay máy in thì gần như chắc
+  chắn không mở port được. Đây là lựa chọn khó hơn, không phải dễ hơn.
+
+#### Với robot kiểu thú cưng thì tối ưu cái gì
+
+Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
+
+- **Độ trễ ăn đứt độ thông minh.** Trả lời ngốc nghếch sau 0,8 giây dễ thương hơn hẳn
+  câu sâu sắc sau 4 giây — im lặng 4 giây trông như treo máy. Đó là lý do chọn Groq.
+- **Câu trả lời phải ngắn.** Thú cưng không thuyết trình. Ép system prompt giới hạn
+  1–2 câu: vừa nhanh, vừa đáng yêu, vừa đỡ tốn TTS.
+- **Tính cách nằm ở system prompt.** Llama 8B với prompt nhân vật viết kỹ sống động
+  hơn model 70B trả lời trung tính. Đây là chỗ đáng bỏ công nhất mà lại miễn phí.
+- **Giọng đọc quan trọng ngang nội dung.** EdgeTTS chỉnh được tốc độ và cao độ; nói
+  nhanh hơn một chút thường nghe trẻ trung, hợp kiểu robot cute.
+
 ### Chưa kiểm chứng
 
 - Chưa thử `xiaozhi-esp32-server` với firmware 2.5.0 trong repo này; giao thức có thể đã đổi.
-- **Rào cản thực tế lớn nhất là mạng:** server tự host phải cùng mạng với ESP32 hoặc
-  phơi ra internet. Nếu ESP32 đang nối vào hotspot điện thoại hay máy in thì gần như
-  chắc chắn không mở port được.
+- Chưa tự đăng ký Oracle Cloud Always Free nên không dám hứa lấy được máy ARM ngay.
+- Hạn mức free tier của Groq là số liệu đọc từ tài liệu, chưa chạy thật để đo.
 - Đổi server **không** cứu được chuyện thiếu wake word — đó là giới hạn phần cứng.
 
 ## Hạn chế đã biết
