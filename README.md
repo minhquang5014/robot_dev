@@ -105,6 +105,60 @@ Cả hai đều dùng chân giống xiaozhi nên test xong là biết phần c�
 > Bỏ trống thì nó mặc định thành GPIO0; kênh I2S thứ hai sẽ báo `mclk config failed`
 > và `i2s_set_pin()` **thoát sớm, chưa kịp gán BCLK/LRC/DIN** — loa câm dù phần cứng tốt.
 
+## Máy chủ
+
+### Mặc định: máy chủ chính thức của xiaozhi
+
+Firmware nối ra ngoài theo **hai tầng**:
+
+1. **Kích hoạt và cấp phát** — thiết bị gọi `https://api.tenclass.net/xiaozhi/ota/`,
+   địa chỉ viết cứng ở `main/Kconfig.projbuild:5` (sửa qua `CONFIG_OTA_URL`).
+   Trang `xiaozhi.me` là nơi bạn đăng nhập để gán thiết bị vào tài khoản; còn
+   ESP32 thì nói chuyện với `api.tenclass.net`. Cùng nhà vận hành, khác vai trò.
+
+2. **Hội thoại** — máy chủ ở tầng 1 trả về cấu hình MQTT/WebSocket, firmware lưu
+   vào NVS (`main/ota.cc:152-180`). Địa chỉ server hội thoại **không nằm trong code**
+   mà do server cấp phát lúc kích hoạt.
+
+> **Về riêng tư:** giọng nói được gửi lên máy chủ của bên vận hành xiaozhi (Trung Quốc)
+> để nhận dạng và sinh câu trả lời. ESP32 chỉ thu, nén Opus và truyền đi.
+> `api.tenclass.net` cũng là điểm chặn duy nhất — server đó hỏng hoặc chặn IP là
+> thiết bị thành cục gạch.
+
+### Tự host
+
+[xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) nói cùng
+giao thức, chạy Docker. Chuyển sang chỉ cần đổi `CONFIG_OTA_URL`, không phải sửa code.
+Yêu cầu tối thiểu 2 nhân / 2GB nếu chỉ gọi API ra ngoài.
+
+Bộ **miễn phí, có tiếng Việt**:
+
+| Tầng | Chọn | Ghi chú |
+|---|---|---|
+| STT | Whisper self-host (faster-whisper) | **Đừng dùng FunASR** — tối ưu cho tiếng Trung |
+| LLM | Gemini free tier | Dự án ghi rõ có bậc miễn phí |
+| TTS | EdgeTTS, giọng `vi-VN-HoaiMyNeural` / `vi-VN-NamMinhNeural` | Miễn phí, giọng Việt tự nhiên |
+
+Nếu muốn chất lượng suy luận cao hơn, **Grok làm LLM là cắm vào chạy luôn** — server
+nhận bất kỳ endpoint nào tương thích OpenAI, mà API chat của xAI đúng chuẩn đó.
+
+Grok cũng có STT và TTS riêng (`https://api.x.ai/v1/tts`, $4.20 / 1 triệu ký tự —
+khoảng 5000 lượt đối đáp), nhưng server dùng danh sách provider cố định **không có
+xAI**, nên hai phần này phải tự viết adapter. Điểm cân bằng hợp lý: Grok cho LLM,
+EdgeTTS cho TTS.
+
+**LiveKit không hợp ở đây.** Nó là hạ tầng WebRTC + điều phối agent, bản thân không
+phải nhà cung cấp STT. ESP32 nói giao thức riêng của xiaozhi chứ không phải WebRTC,
+nên ghép vào là phải viết cầu nối hai giao thức mà chẳng được gì thêm.
+
+### Chưa kiểm chứng
+
+- Chưa thử `xiaozhi-esp32-server` với firmware 2.5.0 trong repo này; giao thức có thể đã đổi.
+- **Rào cản thực tế lớn nhất là mạng:** server tự host phải cùng mạng với ESP32 hoặc
+  phơi ra internet. Nếu ESP32 đang nối vào hotspot điện thoại hay máy in thì gần như
+  chắc chắn không mở port được.
+- Đổi server **không** cứu được chuyện thiếu wake word — đó là giới hạn phần cứng.
+
 ## Hạn chế đã biết
 
 Không có PSRAM nên **không dùng được wake word** (`USE_ESP_WAKE_WORD` cần
