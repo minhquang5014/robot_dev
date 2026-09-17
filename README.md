@@ -140,11 +140,17 @@ Yêu cầu tối thiểu 2 nhân / 2GB nếu chỉ gọi API ra ngoài.
 | Tầng | Chọn | Hạn mức miễn phí |
 |---|---|---|
 | STT | Groq `whisper-large-v3-turbo` | 2.000 req/ngày, 28.800 giây audio/ngày |
-| LLM | Groq `llama-3.1-8b-instant` | 14.400 req/ngày, 30 req/phút |
+| LLM | Groq `qwen/qwen3.8-27b` | ~1.000 req/ngày, **8.000 token/phút** |
 | TTS | EdgeTTS, `vi-VN-HoaiMyNeural` / `vi-VN-NamMinhNeural` | Không giới hạn thực tế |
 
-Tổng chi phí **$0/tháng**, không cần thẻ tín dụng. Robot để bàn dùng cỡ 200 lượt/ngày
-là cùng, tức dư khoảng 70 lần. Groq tương thích chuẩn OpenAI nên cắm thẳng vào khe LLM.
+Tổng chi phí **$0/tháng**, không cần thẻ tín dụng. Groq tương thích chuẩn OpenAI nên
+cắm thẳng vào khe LLM. Chỗ siết thật là **token/phút** chứ không phải request/ngày:
+mỗi lượt ~700 token, tức trần khoảng 11 lượt/phút — robot để bàn thì thoải mái.
+
+> **Groq gỡ model theo thời gian.** Bản trước của README này khuyến nghị
+> `llama-3.1-8b-instant`; đến 16/09/2026 model đó đã bị gỡ. Chạy
+> `python server/test_voice.py --models` trước khi tin bất kỳ tên model nào ở đây.
+> Số đo và so sánh các model: [server/README.md](server/README.md).
 
 **Đừng dùng FunASR cho tiếng Việt** — nó tối ưu cho tiếng Trung. Muốn chạy STT
 hoàn toàn cục bộ thì dùng faster-whisper.
@@ -177,8 +183,11 @@ Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
   câu sâu sắc sau 4 giây — im lặng 4 giây trông như treo máy. Đó là lý do chọn Groq.
 - **Câu trả lời phải ngắn.** Thú cưng không thuyết trình. Ép system prompt giới hạn
   1–2 câu: vừa nhanh, vừa đáng yêu, vừa đỡ tốn TTS.
-- **Tính cách nằm ở system prompt.** Llama 8B với prompt nhân vật viết kỹ sống động
-  hơn model 70B trả lời trung tính. Đây là chỗ đáng bỏ công nhất mà lại miễn phí.
+- **Tính cách nằm ở system prompt.** Model vừa phải với prompt nhân vật viết kỹ sống
+  động hơn model lớn trả lời trung tính. Đây là chỗ đáng bỏ công nhất mà lại miễn phí.
+- **Model nhỏ nhất chưa chắc nhanh nhất.** Trên Groq tốc độ phụ thuộc phần cứng họ phục
+  vụ, không phụ thuộc kích cỡ. Đo 17/09/2026: `allam-2-7b` (nhỏ nhất) trung vị 419 ms
+  và nói tiếng Việt hỏng, còn `qwen3.8-27b` trung vị 362 ms và nói tốt.
 - **Giọng đọc quan trọng ngang nội dung.** EdgeTTS chỉnh được tốc độ và cao độ; nói
   nhanh hơn một chút thường nghe trẻ trung, hợp kiểu robot cute.
 
@@ -186,7 +195,8 @@ Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
 
 - Chưa thử `xiaozhi-esp32-server` với firmware 2.5.0 trong repo này; giao thức có thể đã đổi.
 - Chưa tự đăng ký Oracle Cloud Always Free nên không dám hứa lấy được máy ARM ngay.
-- Hạn mức free tier của Groq là số liệu đọc từ tài liệu, chưa chạy thật để đo.
+- Hạn mức Groq ở bảng trên lấy từ header trả về khi chạy thật, nhưng chưa chạy đủ
+  lâu để chạm trần ngày.
 - Đổi server **không** cứu được chuyện thiếu wake word — đó là giới hạn phần cứng.
 
 ## Hạn chế đã biết

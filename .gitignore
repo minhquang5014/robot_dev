@@ -22,3 +22,6 @@ __pycache__/
 
 # ---- Ket qua test pipeline ----
 server/out/
+
+# ---- Moi truong Python ----
+.venv/

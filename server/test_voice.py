@@ -7,12 +7,17 @@ Thu duong ong voice -> voice ma KHONG can ESP32.
     python server/test_voice.py --chat            # noi chuyen lien tuc, co nho ngu canh
     python server/test_voice.py --models          # xem Groq con nhung model nao
 
+    Them --stream vao --text / --in / --record / --chat de chay TTS streaming
+    va do thoi diem co tieng dau tien (cai nguoi nghe thuc su cam nhan).
+
 Muc dich: xac nhan API key chay duoc, nghe thu giong tieng Viet, va do do tre
 that truoc khi dung server WebSocket.
 """
 
 import argparse
+import asyncio
 import io
+import logging
 import os
 import sys
 import time
@@ -67,20 +72,53 @@ def play(path: str):
         print(f"(khong tu phat duoc, mo tay file {path}: {e})")
 
 
+def _mark(ms: int) -> str:
+    # Duoi 1500ms thi con giong sinh vat; tren 2500ms nghe nhu treo may.
+    return "tốt" if ms < 1500 else ("chậm" if ms > 2500 else "tạm được")
+
+
 def report(turn: pipeline.Turn):
     print()
     print(f"  Nghe được : {turn.transcript}")
-    print(f"  Cảm xúc   : {turn.emotion}")
+    emo = turn.emotion
+    if turn.emotion_raw and turn.emotion_raw != turn.emotion:
+        emo += f"   (LLM viết [{turn.emotion_raw}])"
+    print(f"  Cảm xúc   : {emo}")
     print(f"  Trả lời   : {turn.reply}")
     print()
     print(f"  STT   {turn.ms_stt:>6} ms")
     print(f"  LLM   {turn.ms_llm:>6} ms")
-    print(f"  TTS   {turn.ms_tts:>6} ms")
-    print(f"  {'-' * 14}")
-    # Duoi 1500ms thi con giong sinh vat; tren 2500ms nghe nhu treo may.
-    mark = "tốt" if turn.ms_total < 1500 else ("chậm" if turn.ms_total > 2500 else "tạm được")
-    print(f"  TỔNG  {turn.ms_total:>6} ms   ({mark})")
+    if turn.ms_first_audio:
+        print(f"  TTS   {turn.ms_tts:>6} ms   (chunk đầu sau {turn.ms_tts_first} ms)")
+        print(f"  {'-' * 14}")
+        print(f"  TIẾNG ĐẦU TIÊN {turn.ms_first_audio:>6} ms   ({_mark(turn.ms_first_audio)})")
+        print(f"  XONG CẢ CÂU    {turn.ms_total:>6} ms")
+    else:
+        print(f"  TTS   {turn.ms_tts:>6} ms")
+        print(f"  {'-' * 14}")
+        print(f"  TỔNG  {turn.ms_total:>6} ms   ({_mark(turn.ms_total)})")
     print()
+
+
+def run_stream(out_path: str, audio_path: str = None, text: str = None,
+               history: list = None) -> pipeline.Turn:
+    """Chay luot streaming, ghi chunk MP3 ra file ngay khi toi.
+
+    Tren Mac chi do thoi gian roi phat file sau. Phat that su tung chunk la
+    viec cua ESP32 (qua Opus), khong phai cua script nay.
+    """
+    turn = pipeline.Turn()
+
+    async def go():
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        with open(out_path, "wb") as f:
+            async for chunk in pipeline.run_turn_stream(turn, audio_path=audio_path,
+                                                        text=text, history=history):
+                f.write(chunk)
+
+    asyncio.run(go())
+    turn.audio_path = out_path
+    return turn
 
 
 def main():
@@ -91,8 +129,12 @@ def main():
     p.add_argument("--chat", action="store_true", help="Noi chuyen lien tuc, nho ngu canh")
     p.add_argument("--models", action="store_true", help="Liet ke model Groq con song")
     p.add_argument("--no-play", action="store_true", help="Khong tu phat cau tra loi")
+    p.add_argument("--stream", action="store_true", help="TTS streaming, do tieng dau tien")
+    p.add_argument("-v", "--verbose", action="store_true", help="In ca log INFO (quy doi cam xuc)")
     args = p.parse_args()
 
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
+                        format="  [%(levelname)s] %(message)s")
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
     os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -104,15 +146,18 @@ def main():
 
         # Nhanh nhanh nhat: bo qua STT.
         if args.text:
-            t0 = time.perf_counter()
-            emotion, reply, _ = pipeline.think(args.text)
-            ms_llm = int((time.perf_counter() - t0) * 1000)
             out = os.path.join(OUT_DIR, "reply.mp3")
-            t0 = time.perf_counter()
-            pipeline.text_to_speech(reply, out)
-            ms_tts = int((time.perf_counter() - t0) * 1000)
-            report(pipeline.Turn(transcript=args.text, emotion=emotion, reply=reply,
-                                 ms_llm=ms_llm, ms_tts=ms_tts))
+            if args.stream:
+                turn = run_stream(out, text=args.text)
+            else:
+                turn = pipeline.Turn(transcript=args.text)
+                t0 = time.perf_counter()
+                turn.emotion, turn.reply, _, turn.emotion_raw = pipeline.think(args.text)
+                turn.ms_llm = int((time.perf_counter() - t0) * 1000)
+                t0 = time.perf_counter()
+                pipeline.text_to_speech(turn.reply, out)
+                turn.ms_tts = int((time.perf_counter() - t0) * 1000)
+            report(turn)
             if not args.no_play:
                 play(out)
             return
@@ -125,7 +170,11 @@ def main():
                 input("Enter để bắt đầu thu âm 4 giây...")
                 wav = record(4, os.path.join(OUT_DIR, "in.wav"))
                 n += 1
-                turn = pipeline.run_turn(wav, os.path.join(OUT_DIR, f"reply_{n}.mp3"), history)
+                out = os.path.join(OUT_DIR, f"reply_{n}.mp3")
+                if args.stream:
+                    turn = run_stream(out, audio_path=wav, history=history)
+                else:
+                    turn = pipeline.run_turn(wav, out, history)
                 history = turn.history
                 report(turn)
                 if not args.no_play:
@@ -139,7 +188,11 @@ def main():
         if not os.path.exists(src):
             sys.exit(f"Không thấy file {src}")
 
-        turn = pipeline.run_turn(src, os.path.join(OUT_DIR, "reply.mp3"))
+        out = os.path.join(OUT_DIR, "reply.mp3")
+        if args.stream:
+            turn = run_stream(out, audio_path=src)
+        else:
+            turn = pipeline.run_turn(src, out)
         report(turn)
         if not args.no_play:
             play(turn.audio_path)
