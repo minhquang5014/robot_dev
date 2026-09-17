@@ -127,9 +127,19 @@ Firmware nối ra ngoài theo **hai tầng**:
 
 ### Tự host
 
-[xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) nói cùng
-giao thức, chạy Docker. Chuyển sang chỉ cần đổi `CONFIG_OTA_URL`, không phải sửa code.
-Yêu cầu tối thiểu 2 nhân / 2GB nếu chỉ gọi API ra ngoài.
+Có hai lựa chọn:
+
+- **`server/` trong repo này** — tự viết, gọn: đường ống Groq + EdgeTTS đã chạy và đo
+  thật, server giao thức xiaozhi đang ở **Mốc 0** (bắt tay được với thiết bị giả lập,
+  chưa có ESP32 thật gọi vào, chưa nối AI). Chi tiết và bảng giao thức đọc từ firmware:
+  [server/README.md](server/README.md).
+- [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) — dự án
+  cộng đồng, đầy đủ tính năng, chạy Docker, tối thiểu 2 nhân / 2GB nếu chỉ gọi API.
+  Chưa thử với firmware trong repo này.
+
+**Đổi server không cần nạp lại firmware.** Firmware đọc `ota_url` lưu trong NVS trước,
+trống mới dùng `CONFIG_OTA_URL` (`main/ota.cc:48-55`). Đặt được qua trang cấu hình WiFi
+`http://192.168.4.1`, tab nâng cao.
 
 #### Bộ miễn phí, có tiếng Việt
 
@@ -168,12 +178,18 @@ nên ghép vào là phải viết cầu nối hai giao thức mà chẳng đư�
 
 ESP32 chỉ mở kết nối **đi ra** (y như nó đang gọi `api.tenclass.net`), nên:
 
-- **VPS có IP công cộng — dễ nhất.** Không cần mở port, không phụ thuộc mạng nội bộ.
-  Oracle Cloud Always Free cho 4 nhân ARM / 24GB vĩnh viễn là quá đủ, nhược điểm là
-  nhiều khu vực hay hết chỗ ARM, phải thử lại nhiều lần.
+- **VPS có IP công cộng — dễ nhất.** Mạng nhà hay mạng ESP32 đang bám không cần cấu
+  hình gì. Oracle Cloud Always Free cho 4 nhân ARM / 24GB vĩnh viễn là quá đủ, nhược
+  điểm là nhiều khu vực hay hết chỗ ARM, phải thử lại nhiều lần.
+  **Trên VPS thì vẫn phải mở cổng server**, và với Oracle là mở ở **cả hai chỗ**:
+  security list của VCN, và iptables bên trong máy (image Ubuntu của Oracle chặn sẵn).
+  Thiếu một trong hai là ESP32 báo không kết nối được.
 - **Máy ở nhà — vướng mạng.** Chỉ chạy khi ESP32 **cùng mạng LAN**, hoặc bạn mở được
   port ra ngoài. Nếu ESP32 đang bám hotspot điện thoại hay máy in thì gần như chắc
   chắn không mở port được. Đây là lựa chọn khó hơn, không phải dễ hơn.
+- **Máy công ty — đừng.** Mở cổng hay dựng tunnel (cloudflared, ngrok…) trên máy do
+  công ty quản lý là đi vòng tường lửa của họ, IT theo dõi đúng loại việc này. Dùng
+  máy công ty để sửa code, nạp firmware qua USB, đọc log là đủ; server đặt trên VPS.
 
 #### Với robot kiểu thú cưng thì tối ưu cái gì
 
@@ -194,6 +210,7 @@ Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
 ### Chưa kiểm chứng
 
 - Chưa thử `xiaozhi-esp32-server` với firmware 2.5.0 trong repo này; giao thức có thể đã đổi.
+- Server tự viết trong `server/` chưa được ESP32 thật gọi vào — mới qua thiết bị giả lập.
 - Chưa tự đăng ký Oracle Cloud Always Free nên không dám hứa lấy được máy ARM ngay.
 - Hạn mức Groq ở bảng trên lấy từ header trả về khi chạy thật, nhưng chưa chạy đủ
   lâu để chạm trần ngày.

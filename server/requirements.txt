@@ -1,3 +1,4 @@
+aiohttp>=3.9
 requests>=2.31
 edge-tts>=6.1
 python-dotenv>=1.0

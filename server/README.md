@@ -15,6 +15,7 @@ hay ESP32. Khi dựng server thật, nó gọi lại đúng ba hàm này, không
 |---|---|
 | `pipeline.py` | `speech_to_text` → `think` → `text_to_speech`. Phần dùng lại được. Server async dùng `run_turn_stream` |
 | `test_voice.py` | CLI chạy thử, đo thời gian từng chặng |
+| `xiaozhi_server.py` | Server nói giao thức xiaozhi để ESP32 gọi vào. **Mốc 0**: mới bắt tay + ghi log, chưa nối AI |
 | `.env.example` | Mẫu khai báo khoá. Copy thành `.env` — file đó **không** lên git |
 
 ## Chạy
@@ -42,6 +43,72 @@ async with contextlib.aclosing(pipeline.run_turn_stream(turn, audio_path=wav)) a
     async for mp3_chunk in g:
         ...   # turn.emotion đã có trước chunk đầu -> gửi cảm xúc trước
 ```
+
+### Server giao thức xiaozhi (Mốc 0)
+
+```bash
+python server/xiaozhi_server.py --port 8000    # mặc định chỉ nghe 127.0.0.1
+```
+
+Mỗi lượt nghe, các gói Opus ESP32 gửi lên được lưu vào `server/out/ws_sessions/*.opuspkt`
+(mỗi gói: 2 byte độ dài little-endian + payload) để làm bước giải mã sau này.
+
+Hiện đã kiểm bằng **thiết bị giả lập** gửi đúng chuỗi tin như firmware: OTA trả địa
+chỉ WebSocket, bắt tay `hello`, `listen` start/stop, đếm và lưu gói. **Chưa có ESP32
+thật nào gọi vào.**
+
+> **Chạy server ở máy chủ từ xa (Oracle, VPS), không chạy trên máy công ty.** ESP32
+> phải gọi được vào server, nghĩa là server phải nhận kết nối từ ngoài. Mở cổng hay
+> dựng tunnel (cloudflared, ngrok…) trên máy do công ty quản lý là đi vòng tường lửa
+> của họ — IT theo dõi đúng loại việc này. Trên máy cá nhân, để `--host 127.0.0.1`
+> và thử bằng thiết bị giả lập là an toàn.
+
+> **Địa chỉ công khai thì ai biết cũng gọi được**, và mỗi lượt tốn hạn mức Groq của
+> bạn. `XZ_TOKEN` được gửi kèm trong header, nhưng chính endpoint OTA lại trả token
+> đó cho bất kỳ ai hỏi — nên nó **không** phải cơ chế bảo vệ thật.
+
+## Giao thức xiaozhi — đọc từ firmware 2.5.0
+
+Ghi lại để khỏi phải đọc lại code. Đường dẫn tính từ `xiaozhi-esp32/main/`.
+
+**Đổi server không cần nạp lại firmware.** Firmware đọc `ota_url` trong NVS (namespace
+`wifi`) trước, trống mới dùng `CONFIG_OTA_URL` (`ota.cc:48-55`). Trang cấu hình WiFi
+`192.168.4.1`, tab nâng cao, ghi đúng khoá đó.
+
+**Bước OTA** — `POST` kèm JSON thông tin thiết bị (`ota.cc:95-100`). Phản hồi:
+
+| Trường | Tác dụng |
+|---|---|
+| `websocket: {url, token}` | Có trường này và **không** có `mqtt` thì firmware dùng WebSocket (`application.cc:538-545`) |
+| `activation` | Không trả thì firmware **bỏ qua bước kích hoạt** |
+| `firmware: {version, url}` | Không trả thì không nâng cấp |
+| `server_time: {timestamp, timezone_offset}` | Đặt giờ hệ thống; offset tính bằng phút |
+
+**WebSocket** (`protocols/websocket_protocol.cc`)
+
+- Header: `Authorization: Bearer <token>`, `Protocol-Version: 1`, `Device-Id` (MAC), `Client-Id`.
+- Thiết bị gửi `hello` (Opus, 16 kHz, mono, khung **60 ms**), rồi **chờ `hello` của server
+  tối đa 10 giây**. `hello` của server bắt buộc có `transport: "websocket"`; `audio_params`
+  quyết định tần số của audio server gửi xuống.
+- Protocol-Version 1: gói binary là **Opus thô**, không có header.
+
+**Thiết bị gửi lên** (`protocols/protocol.cc`): `listen` với `state` `start`/`stop`/`detect`,
+`abort`, `mcp`. Mọi tin đều kèm `session_id` lấy từ `hello` của server.
+
+**Bấm nút BOOT thì nghe ở chế độ `auto`** (`application.cc:807`, `:1189` — không có AEC
+thì mặc định `AutoStop`). Thiết bị cứ gửi audio mãi, **server phải tự phát hiện người
+nói đã dừng** (VAD) rồi mới trả lời. Chế độ `manual` chỉ dùng cho nút giữ-để-nói GPIO5.
+
+**Server gửi xuống** (`application.cc:586-704`):
+
+| Tin | Tác dụng trên thiết bị |
+|---|---|
+| `{"type":"stt","text":…}` | Hiện câu người dùng nói |
+| `{"type":"llm","emotion":…}` | Đổi biểu cảm |
+| `{"type":"tts","state":"start"}` | Chuyển sang trạng thái đang nói |
+| `{"type":"tts","state":"sentence_start","text":…}` | Hiện câu robot đang nói |
+| `{"type":"tts","state":"stop"}` | Chế độ `auto` thì quay lại nghe tiếp |
+| binary | Opus theo `audio_params` trong `hello` của server |
 
 ## Kết quả đo — 17/09/2026
 
@@ -246,12 +313,16 @@ Không phải do rate limit (đo lúc còn 986/1000 request, `queue_time` 0,31 s
   Phát từng chunk là việc của ESP32 qua Opus, chưa làm.
 - Chưa đo được tỷ lệ trả lời tiếng Anh sau khi sửa prompt — tỷ lệ gốc 1/10 cần
   nhiều mẫu mới thấy khác biệt.
+- **`xiaozhi_server.py` chưa được ESP32 thật gọi vào.** Bảng giao thức ở trên đọc từ
+  code firmware, còn server mới chỉ test bằng thiết bị giả lập. Chưa thử ESP32
+  (không PSRAM) bắt tay TLS với tên miền công khai khác `api.tenclass.net`.
 
 ## Việc tiếp theo
 
-1. **Mốc 0** — endpoint `①` trả JSON tĩnh + WebSocket server rỗng, chứng minh
-   ESP32 bắt tay được. Chưa nối AI vào.
-2. **Opus + VAD** ở server. Thiết bị không có VAD, server phải tự cắt lượt.
+1. **Mốc 0** — code xong (`xiaozhi_server.py`), đã qua thiết bị giả lập. Còn lại:
+   dựng trên máy chủ từ xa, đổi `ota_url` của ESP32 sang đó, xem log bắt tay thật.
+2. **Opus + VAD** ở server. Đã xác nhận trong firmware: bấm BOOT là chế độ `auto`,
+   thiết bị không tự cắt lượt, server phải làm.
 3. **Nối `pipeline.py` vào** — phần này xong rồi, chỉ là gọi hàm.
 4. **TTS streaming** — phía pipeline xong (`run_turn_stream`). Còn lại: đổi chunk
    MP3 sang Opus cho ESP32.
