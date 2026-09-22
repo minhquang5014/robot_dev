@@ -459,6 +459,31 @@ void loop() {
       break;
     }
 
+    case 'P': {
+      // Quet TOAN BO dai do rong xung, khong dung write(goc) ma dung
+      // writeMicroseconds() truc tiep. SG90 nhan 500-2400us, MG90S nhieu con
+      // chi nhan 1000-2000us. Quet ca dai nay thi moi loai servo deu phai
+      // phan ung o dau do. Khong nhuc nhich o BAT KY xung nao = khong phai
+      // chuyen dai xung, loai tru duoc gia thuyet cuoi cung thuoc phan mem.
+      Serial.println(F("> QUET DAI XUNG 600-2400us, tung chan mot"));
+      for (uint8_t i = 0; i < N; i++) {
+        Serial.print(F("  --> ")); Serial.print(names[i]);
+        Serial.print(F("   CHAN ")); Serial.println(pins[i]);
+        sv[i].attach(pins[i], 400, 2600);       // mo rong hon ca chuan
+        for (int us =  600; us <= 2400; us += 10) { sv[i].writeMicroseconds(us); delay(10); }
+        delay(500);
+        for (int us = 2400; us >=  600; us -= 10) { sv[i].writeMicroseconds(us); delay(10); }
+        delay(500);
+        sv[i].writeMicroseconds(1500);          // ve giua
+        delay(400);
+        sv[i].detach();
+        attached[i] = false;
+      }
+      Serial.println(F("  xong QUET DAI XUNG."));
+      lastCmd = millis();
+      break;
+    }
+
     case 'i': status(); break;
     case 'd': detachAll(); break;
     case 'h': help(); break;
