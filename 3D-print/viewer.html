@@ -90,11 +90,9 @@
            margin-top: 14px; padding: 12px 13px; }
   .panel h3 { font: 500 11px/1 "Barlow Semi Condensed", sans-serif; letter-spacing: .1em;
               text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
-  .sl { display: grid; grid-template-columns: 18px 1fr 56px; gap: 8px; align-items: center; margin-bottom: 7px; }
-  .sl label { font: 500 12px/1 "Barlow Semi Condensed", sans-serif; color: var(--muted); }
-  .sl output { font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
-               font-variant-numeric: tabular-nums; color: var(--measure); text-align: right; }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .coord { font-family: "IBM Plex Mono", monospace; font-size: 12.5px;
+           font-variant-numeric: tabular-nums; color: var(--measure); margin: 0; }
+  .hint b { color: var(--ink); font-weight: 600; }
   .rowbtn { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
   .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
 
@@ -127,15 +125,15 @@
 
       <div class="panel" id="mover" hidden>
         <h3 id="moverName">Dời linh kiện</h3>
-        <div class="sl"><label for="sx">X</label><input type="range" id="sx"><output id="ox"></output></div>
-        <div class="sl"><label for="sy">Y</label><input type="range" id="sy"><output id="oy"></output></div>
-        <div class="sl"><label for="sz">Z</label><input type="range" id="sz"><output id="oz"></output></div>
+        <p class="coord" id="coord">—</p>
         <div class="rowbtn">
           <button id="rotY">Xoay 90°</button>
           <button id="rotX">Lật 90°</button>
           <button id="resetOne">Về giữa</button>
         </div>
-        <p class="hint">Vị trí được nhớ lại trên máy này.</p>
+        <p class="hint"><b>Kéo thẳng linh kiện</b> trong khung 3D để dời.
+           Nó trượt trong mặt phẳng bạn đang nhìn — xoay góc nhìn rồi kéo tiếp
+           để chỉnh chiều sâu. Vị trí được nhớ trên máy này.</p>
       </div>
     </div>
 
@@ -202,7 +200,10 @@ window.OTTO_MESH = {
     { k:'spk',   vi:'Loa 25×15×5',     d:[25.0,15.0,5.0],  c:0x497d52 },
     { k:'servo', vi:'Servo SG90',      d:[32.2,29.8,12.5], c:0x2f6f66 }
   ];
-  var STORE = 'otto-fit-v1';
+  // Cho moi linh kien mot cho dung ban dau trong than, de khong chong len nhau.
+  var HOME = { esp32:[0,20,0], oled:[0,30,-22], amp:[-32,14,10],
+               mic:[32,14,-10], spk:[0,10,22], servo:[-38,12,22] };
+  var STORE = 'otto-fit-v2';
 
   var cv = document.getElementById('cv');
   var css = getComputedStyle(document.documentElement);
@@ -275,13 +276,57 @@ window.OTTO_MESH = {
     target.copy(c);
     radius = Math.max(r / Math.tan(camera.fov * Math.PI / 360) * 1.15, 26);
   }
+  var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  var plane = new THREE.Plane(), hitPt = new THREE.Vector3(), grabOff = new THREE.Vector3();
+  var moving = null;
+
+  function toNdc(e) {
+    var r = cv.getBoundingClientRect();
+    ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height * 2 - 1));
+  }
+  function pickComp(e) {
+    if (mode !== 'fit') return null;
+    var list = [];
+    COMP.forEach(function (c) { if (comps[c.k] && comps[c.k].visible) list.push(comps[c.k]); });
+    if (!list.length) return null;
+    toNdc(e); ray.setFromCamera(ndc, camera);
+    var hit = ray.intersectObjects(list, false);
+    return hit.length ? hit[0] : null;
+  }
+
   cv.addEventListener('pointerdown', function (e) {
     cv.setPointerCapture(e.pointerId);
-    drag = { x:e.clientX, y:e.clientY, pan: e.shiftKey || e.button === 1 };
     spin = false; press($('bSpin'), false);
+
+    var h = e.shiftKey ? null : pickComp(e);
+    if (h) {
+      // Keo trong mat phang VUONG GOC huong nhin, di qua diem vua cham.
+      // Nho vay linh kien bam theo chuot dung nhu mat thay tren man hinh.
+      moving = h.object;
+      var n = camera.getWorldDirection(new THREE.Vector3());
+      plane.setFromNormalAndCoplanarPoint(n, h.point);
+      grabOff.copy(moving.position).sub(h.point);
+      cv.style.cursor = 'grabbing';
+      var c = COMP.filter(function (q) { return comps[q.k] === moving; })[0];
+      if (c) selectComp(c, true);
+      return;
+    }
+    drag = { x:e.clientX, y:e.clientY, pan: e.shiftKey || e.button === 1 };
   });
   cv.addEventListener('pointermove', function (e) {
-    if (!drag) return;
+    if (moving) {
+      toNdc(e); ray.setFromCamera(ndc, camera);
+      if (ray.ray.intersectPlane(plane, hitPt)) {
+        moving.position.copy(hitPt).add(grabOff);
+        showCoord();
+      }
+      return;
+    }
+    if (!drag) {
+      // Con tro doi hinh khi ri tren linh kien — de biet la keo duoc
+      cv.style.cursor = pickComp(e) ? 'grab' : 'default';
+      return;
+    }
     var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     drag.x = e.clientX; drag.y = e.clientY;
     if (drag.pan) {
@@ -292,7 +337,10 @@ window.OTTO_MESH = {
     } else { theta -= dx * .0055; phi -= dy * .0055; }
     place();
   });
-  function endDrag(e) { if (drag) { try { cv.releasePointerCapture(e.pointerId); } catch (_) {} drag = null; } }
+  function endDrag(e) {
+    if (moving) { moving = null; cv.style.cursor = 'grab'; savePos(); }
+    if (drag) { try { cv.releasePointerCapture(e.pointerId); } catch (_) {} drag = null; }
+  }
   cv.addEventListener('pointerup', endDrag);
   cv.addEventListener('pointercancel', endDrag);
   cv.addEventListener('wheel', function (e) { e.preventDefault(); zoomBy(Math.sign(e.deltaY) * .12); }, { passive:false });
@@ -357,7 +405,13 @@ window.OTTO_MESH = {
       if (m === 'plate') { x.visible = true; x.material = wire ? matWire : matShell; x.position.copy(plateHome[p.k]); }
       else {
         x.visible = p.k === 'body';
-        if (p.k === 'body') { x.material = matGhost; x.position.set(-p.d[0]/2, x.userData.floor, -p.d[1]/2); }
+        if (p.k === 'body') {
+          x.material = matGhost;
+          x.position.set(0, x.userData.floor, 0);
+          x.updateMatrixWorld();
+          var bb = new THREE.Box3().setFromObject(x), cc = bb.getCenter(new THREE.Vector3());
+          x.position.x -= cc.x; x.position.z -= cc.z;   // can giua that su o goc toa do
+        }
       }
     });
     COMP.forEach(function (c) { if (comps[c.k]) comps[c.k].visible = (m === 'fit') && comps[c.k].userData.on; });
@@ -405,7 +459,7 @@ window.OTTO_MESH = {
         '<span class="dim">' + p.d.map(function (v) { return v.toFixed(1); }).join(' × ') + '</span>';
       b.addEventListener('click', function () {
         if (mode === 'plate') { focus === p.k ? showAllPlate() : showOnePlate(p); }
-        else { pickComp(p); }
+        else { selectComp(p); }
       });
       list.appendChild(b);
     });
@@ -423,9 +477,16 @@ window.OTTO_MESH = {
   }
 
   // ---- chon & doi linh kien ----
-  function pickComp(c) {
+  function showCoord() {
+    if (!sel || !comps[sel]) { $('coord').textContent = '—'; return; }
+    var p2 = comps[sel].position;
+    $('coord').textContent = 'x ' + p2.x.toFixed(1) + '   y ' + p2.y.toFixed(1) +
+                             '   z ' + p2.z.toFixed(1);
+  }
+
+  function selectComp(c, keepOn) {
     var m = comps[c.k]; if (!m) return;
-    if (sel === c.k) {                       // bam lai -> bat/tat hien
+    if (sel === c.k && !keepOn) {             // bam lai -> bat/tat hien
       m.userData.on = !m.userData.on; m.visible = m.userData.on;
       savePos(); paintList(); return;
     }
@@ -433,44 +494,28 @@ window.OTTO_MESH = {
     if (!m.userData.on) { m.userData.on = true; m.visible = true; }
     $('mover').hidden = false;
     $('moverName').textContent = 'Dời · ' + c.vi;
-    var lim = 90;
-    [['sx','x'],['sy','y'],['sz','z']].forEach(function (pair) {
-      var s = $(pair[0]);
-      s.min = -lim; s.max = lim; s.step = 0.5; s.value = m.position[pair[1]];
-    });
-    syncOut();
+    showCoord();
     $('badge').textContent = c.vi;
     $('read').textContent = c.d.map(function (v) { return v.toFixed(1); }).join(' × ') + ' mm';
     paintList(); savePos();
   }
-  function syncOut() {
-    ['x','y','z'].forEach(function (a) {
-      $('o' + a).textContent = (+$('s' + a).value).toFixed(1);
-    });
-  }
-  ['x','y','z'].forEach(function (a) {
-    $('s' + a).addEventListener('input', function () {
-      if (!sel) return;
-      comps[sel].position[a] = +this.value;
-      syncOut(); savePos();
-    });
-  });
   $('rotY').addEventListener('click', function () {
     if (!sel) return; var m = comps[sel];
     m.userData.ry = ((m.userData.ry || 0) + 90) % 360;
-    m.rotation.y = m.userData.ry * Math.PI / 180; savePos();
+    m.rotation.y = m.userData.ry * Math.PI / 180; showCoord(); savePos();
   });
   $('rotX').addEventListener('click', function () {
     if (!sel) return; var m = comps[sel];
     m.userData.rx = ((m.userData.rx || 0) + 90) % 360;
-    m.rotation.x = -Math.PI / 2 + m.userData.rx * Math.PI / 180; savePos();
+    m.rotation.x = -Math.PI / 2 + m.userData.rx * Math.PI / 180; showCoord(); savePos();
   });
   $('resetOne').addEventListener('click', function () {
     if (!sel) return; var m = comps[sel];
-    m.position.set(0, 20, 0); m.userData.rx = 0; m.userData.ry = 0;
+    var h = HOME[sel] || [0, 20, 0];
+    m.position.set(h[0], h[1], h[2]);
+    m.userData.rx = 0; m.userData.ry = 0;
     m.rotation.set(-Math.PI / 2, 0, 0);
-    ['x','y','z'].forEach(function (a) { $('s' + a).value = m.position[a]; });
-    syncOut(); savePos();
+    showCoord(); savePos();
   });
 
   // ---- nut chung ----
@@ -509,7 +554,11 @@ window.OTTO_MESH = {
         m.userData.rx = s.rx || 0; m.userData.ry = s.ry || 0;
         m.userData.on = s.on !== false;
         m.rotation.set(-Math.PI/2 + m.userData.rx * Math.PI/180, m.userData.ry * Math.PI/180, 0);
-        m.position.set(s.x != null ? s.x : 0, s.y != null ? s.y : 14 + i * 2, s.z != null ? s.z : 0);
+        // Than sau khi dung day len: rong 109 (x), cao 42 (y), sau 69 (z).
+        var home = HOME[c.k];
+        m.position.set(s.x != null ? s.x : home[0],
+                       s.y != null ? s.y : home[1],
+                       s.z != null ? s.z : home[2]);
         comps[c.k] = m; group.add(m);
       });
       layoutPlate();
