@@ -58,6 +58,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* .loading dat display:grid, phai chan lai */
   body {
     background: var(--ground);
     color: var(--ink);
@@ -187,6 +188,8 @@
         <button id="bGrid" aria-pressed="true">Lưới 10mm</button>
         <button id="bServo" aria-pressed="false">Cỡ SG90</button>
         <button id="bSpin" aria-pressed="false">Tự xoay</button>
+        <button id="bIn" aria-label="Phóng to">+</button>
+        <button id="bOut" aria-label="Thu nhỏ">−</button>
       </div>
       <p class="note">
         Kéo để xoay, lăn chuột để phóng, giữ <kbd>Shift</kbd> kéo để dời.
@@ -279,26 +282,44 @@ window.OTTO_MESH = {
   var focus = null, spin = false, wire = false;   // tu xoay TAT mac dinh
 
   function layout() {
-    // Xep cac chi tiet thanh mot hang tren khay, cach deu theo be ngang that.
-    var gap = 14, x = 0, spans = [];
+    // Xep thanh NHIEU HANG cho khay vuong vuc. Mot hang dai ~400mm buoc may
+    // anh lui rat xa de thay het, khien chi tiet nho ti hon.
+    var gap = 16, maxRow = 200, items = [];
     PARTS.forEach(function (p) {
       var m = meshes[p.k]; if (!m) return;
       var b = new THREE.Box3().setFromObject(m);
-      spans.push({ m: m, w: b.max.x - b.min.x, b: b });
-      x += b.max.x - b.min.x + gap;
+      items.push({ m: m, b: b, w: b.max.x - b.min.x, d: b.max.z - b.min.z });
     });
-    var cur = -(x - gap) / 2;
-    spans.forEach(function (s) {
-      s.m.position.x = cur - s.b.min.x + s.m.position.x;
-      cur += s.w + gap;
+    var rows = [], cur = [], w = 0;
+    items.forEach(function (it) {
+      if (cur.length && w + gap + it.w > maxRow) { rows.push({ it: cur, w: w }); cur = []; w = 0; }
+      w += (cur.length ? gap : 0) + it.w;
+      cur.push(it);
     });
+    if (cur.length) rows.push({ it: cur, w: w });
+
+    var depths = rows.map(function (r) {
+      return r.it.reduce(function (a, i) { return Math.max(a, i.d); }, 0);
+    });
+    var totalD = depths.reduce(function (a, d) { return a + d + gap; }, -gap);
+    var z = -totalD / 2;
+    rows.forEach(function (r, ri) {
+      var x = -r.w / 2;
+      r.it.forEach(function (it) {
+        it.m.position.x += x - it.b.min.x;
+        it.m.position.z += z - it.b.min.z;
+        x += it.w + gap;
+      });
+      z += depths[ri] + gap;
+    });
+    servo.position.set(0, 0, z + 10);     // khoi tham chieu dat cuoi khay
   }
 
   function frame(box, pad) {
     var c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
     var r = Math.max(s.x, s.y, s.z) * (pad || 1);
     var dist = r / Math.tan(camera.fov * Math.PI / 360) * 1.15;
-    target.copy(c); dist0 = Math.max(dist, 55);
+    target.copy(c); dist0 = Math.max(dist, 26);
     radius = dist0;
   }
 
@@ -339,10 +360,14 @@ window.OTTO_MESH = {
   function endDrag(e) { if (drag) { try { cv.releasePointerCapture(e.pointerId); } catch (_) {} drag = null; } }
   cv.addEventListener('pointerup', endDrag);
   cv.addEventListener('pointercancel', endDrag);
+  function zoomBy(f) {
+    // Cho lai gan toi 12mm de soi ro hoc bat vit, muong day.
+    radius = Math.max(12, Math.min(1400, radius * (1 + f)));
+    place();
+  }
   cv.addEventListener('wheel', function (e) {
     e.preventDefault();
-    radius = Math.max(30, Math.min(1400, radius * (1 + Math.sign(e.deltaY) * 0.12)));
-    place();
+    zoomBy(Math.sign(e.deltaY) * 0.12);
   }, { passive: false });
 
   // ---- giai ma luoi ----
@@ -380,15 +405,19 @@ window.OTTO_MESH = {
     });
   }
 
-  try {
-    if (!window.OTTO_MESH) throw new Error('mesh-data.js chua nap');
-    build();
-    document.getElementById('load').hidden = true;
-    layout();
-    showAll();
-  } catch (err) {
-    document.getElementById('load').innerHTML =
-      '<div>Không dựng được lưới 3D.</div><div style="font-size:12px">' + err.message + '</div>';
+  function boot() {
+    try {
+      if (!window.OTTO_MESH) throw new Error('mesh-data.js chua nap');
+      build();
+      document.getElementById('load').hidden = true;
+      layout();
+      showAll();
+    } catch (err) {
+      var el = document.getElementById('load');
+      el.hidden = false;
+      el.innerHTML = '<div>Không dựng được lưới 3D.</div>' +
+                     '<div style="font-size:12px">' + err.message + '</div>';
+    }
   }
 
   // ---- trang thai hien thi ----
@@ -396,7 +425,7 @@ window.OTTO_MESH = {
     focus = null;
     PARTS.forEach(function (p) { if (meshes[p.k]) meshes[p.k].visible = true; });
     var b = new THREE.Box3().setFromObject(group);
-    frame(b, 0.62); place();
+    frame(b, 0.52); place();
     document.getElementById('badge').textContent = 'Toàn bộ khay';
     document.getElementById('read').textContent =
       PARTS.reduce(function (a, p) { return a + p.qty; }, 0) + ' chi tiết';
@@ -407,7 +436,7 @@ window.OTTO_MESH = {
     focus = p.k;
     PARTS.forEach(function (q) { if (meshes[q.k]) meshes[q.k].visible = q.k === p.k; });
     var b = new THREE.Box3().setFromObject(meshes[p.k]);
-    frame(b, 0.72); place();
+    frame(b, 0.60); place();
     document.getElementById('badge').textContent = p.vi + (p.qty > 1 ? ' ×' + p.qty : '');
     document.getElementById('read').textContent =
       p.d[0].toFixed(1) + ' × ' + p.d[1].toFixed(1) + ' × ' + p.d[2].toFixed(1) + ' mm';
@@ -428,7 +457,8 @@ window.OTTO_MESH = {
   });
   function paintList() {
     PARTS.forEach(function (p) {
-      document.getElementById('p-' + p.k).setAttribute('aria-pressed', String(focus === p.k));
+      var el = document.getElementById('p-' + p.k);
+      if (el) el.setAttribute('aria-pressed', String(focus === p.k));
     });
   }
   document.getElementById('tot').textContent =
@@ -454,6 +484,8 @@ window.OTTO_MESH = {
       ? 'SG90 · 23 × 12,2 × 29 mm' : '';
   });
   bSpin.addEventListener('click', function () { spin = !spin; setPressed(bSpin, spin); });
+  document.getElementById('bIn').addEventListener('click', function () { zoomBy(-0.22); });
+  document.getElementById('bOut').addEventListener('click', function () { zoomBy(0.22); });
 
   // ---- vong lap ----
   var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -475,6 +507,7 @@ window.OTTO_MESH = {
   })();
 
   place();
+  boot();
 })();
 </script>
 
