@@ -1,0 +1,31 @@
+app = 'xiaozhi-esp32-server'
+primary_region = 'sin'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+# OTA + vision (aiohttp, cổng 8003) -> https://xiaozhi-esp32-server.fly.dev
+[http_service]
+  internal_port = 8003
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+# WebSocket của thiết bị (cổng 8000) -> wss://xiaozhi-esp32-server.fly.dev:8443
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8000
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 8443
+    handlers = ['tls', 'http']
+
+[[vm]]
+  # đo thực tế: ~145MB khi rảnh, ~175MB với 10 kết nối
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1

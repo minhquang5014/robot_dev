@@ -152,6 +152,8 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     bool pending_listening_start_ = false;  // Waiting for playback to drain before starting listening (auto mode)
     int clock_ticks_ = 0;
+    bool auto_listen_paused_ = false;  // User closed the chat with the button; don't auto-reopen
+    int auto_listen_failures_ = 0;     // Consecutive auto-open attempts without a successful channel
     TaskHandle_t activation_task_handle_ = nullptr;
 
 

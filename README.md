@@ -49,6 +49,15 @@ Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định đi
 
 3. **OLED 128x64** — `CONFIG_OLED_SSD1306_128X64=y` (mặc định của board là 128x32).
 
+4. **Luôn nghe, không cần bấm nút** — `CONFIG_ALWAYS_LISTENING=y`, `main/application.cc`.
+
+   Rảnh ~5 giây là tự mở hội thoại, rớt kết nối thì tự nối lại (chờ giãn dần 5 → 60 giây).
+   Bấm BOOT khi đang nghe để tạm dừng, bấm lại để nghe tiếp. Chi tiết và cái giá phải
+   trả: [fly-server/README.md](fly-server/README.md#luôn-nghe).
+
+5. **Server tự host** — `CONFIG_OTA_URL` trỏ về `https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/`
+   thay vì `api.tenclass.net`. Không cần đăng ký mã trên xiaozhi.me nữa.
+
 ## Cài môi trường (macOS, không cần sudo)
 
 ```bash
@@ -77,9 +86,13 @@ idf.py build
 idf.py -p /dev/cu.usbserial-XXXX flash monitor
 ```
 
+> **Đường dẫn repo không được có dấu cách.** Với đường dẫn kiểu `~/Documents/2. Py/...`
+> bước link hỏng: `ld: cannot find Py/2.Raw/19.: No such file or directory` — thư viện
+> prebuilt của `esp_audio_codec` bị cắt đôi ở dấu cách. Clone vào chỗ khác, ví dụ `~/esp/robot_dev`.
+
 Sau khi nạp, thiết bị phát hotspot `Xiaozhi-XXXX`. Nối điện thoại vào, mở
-`http://192.168.4.1` để khai báo WiFi (chỉ 2.4GHz). Rồi đăng ký mã hiện trên
-màn OLED tại https://xiaozhi.me.
+`http://192.168.4.1` để khai báo WiFi (chỉ 2.4GHz). Với server trong `fly-server/`
+thì thiết bị tự nói chuyện luôn, không cần đăng ký mã tại xiaozhi.me.
 
 ## Script tiện ích (`scripts/`)
 
@@ -127,15 +140,18 @@ Firmware nối ra ngoài theo **hai tầng**:
 
 ### Tự host
 
-Có hai lựa chọn:
+Có ba lựa chọn:
 
+- **[`fly-server/`](fly-server/README.md) — đang chạy thật.** xiaozhi-esp32-server kèm bản vá,
+  deploy lên Fly.io. ESP32 trong repo này đã nói chuyện được qua nó ngày 22/09/2026:
+  Groq Whisper + `qwen3.8-27b` + EdgeTTS tiếng Việt, luôn nghe, lọc câu ảo giác của Whisper.
 - **`server/` trong repo này** — tự viết, gọn: đường ống Groq + EdgeTTS đã chạy và đo
   thật, server giao thức xiaozhi đang ở **Mốc 0** (bắt tay được với thiết bị giả lập,
   chưa có ESP32 thật gọi vào, chưa nối AI). Chi tiết và bảng giao thức đọc từ firmware:
   [server/README.md](server/README.md).
 - [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) — dự án
-  cộng đồng, đầy đủ tính năng, chạy Docker, tối thiểu 2 nhân / 2GB nếu chỉ gọi API.
-  Chưa thử với firmware trong repo này.
+  cộng đồng, đầy đủ tính năng, chạy Docker. Chạy được với firmware 2.5.0 trong repo này
+  (xem `fly-server/`); đo thực tế chỉ dùng ~145 MB RAM khi chỉ gọi API.
 
 **Đổi server không cần nạp lại firmware.** Firmware đọc `ota_url` lưu trong NVS trước,
 trống mới dùng `CONFIG_OTA_URL` (`main/ota.cc:48-55`). Đặt được qua trang cấu hình WiFi
@@ -209,7 +225,6 @@ Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
 
 ### Chưa kiểm chứng
 
-- Chưa thử `xiaozhi-esp32-server` với firmware 2.5.0 trong repo này; giao thức có thể đã đổi.
 - Server tự viết trong `server/` chưa được ESP32 thật gọi vào — mới qua thiết bị giả lập.
 - Chưa tự đăng ký Oracle Cloud Always Free nên không dám hứa lấy được máy ARM ngay.
 - Hạn mức Groq ở bảng trên lấy từ header trả về khi chạy thật, nhưng chưa chạy đủ
@@ -219,5 +234,7 @@ Thứ quyết định "dễ thương" không nằm ở kích cỡ model:
 ## Hạn chế đã biết
 
 Không có PSRAM nên **không dùng được wake word** (`USE_ESP_WAKE_WORD` cần
-`IDF_TARGET_ESP32 && SPIRAM`). Phải bấm nút để nói. Muốn rảnh tay thì cần
-module có PSRAM, phổ biến nhất là ESP32-S3.
+`IDF_TARGET_ESP32 && SPIRAM`) và **không có AEC** (`USE_AUDIO_PROCESSOR` cần S3/P4 +
+PSRAM). Chế độ luôn nghe (tuỳ chỉnh 4) thay cho wake word nhưng trả lời mọi câu nghe được,
+và robot không nghe trong lúc đang nói. Muốn gọi tên mới tỉnh hoặc ngắt lời bằng giọng thì
+cần module có PSRAM, phổ biến nhất là ESP32-S3.
