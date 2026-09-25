@@ -42,11 +42,27 @@ Chỉ để ướm thử trong `viewer.html`, không in.
 
 `vo-than-goc.stl` là bản gốc chưa đụng tới, giữ lại để đối chiếu.
 
-**1. Thu cửa sổ OLED: `30,2 × 30,8` → `26,0 × 20,0mm`**
+**1. Thu cửa sổ OLED: `30,2 × 30,8` → `26,0 × 20,0mm`, và làm dày vách quanh đó**
 
 Lỗ gốc **to hơn bo mạch OLED** (27,6 × 27,8) cả hai chiều nên nó lọt tọt qua,
 không có gờ nào đỡ. Kích thước mới bám theo tấm kính thật của SSD1306 — rộng
 hơn cao — và chừa gờ 0,8mm ngang, 3,9mm dọc.
+
+Cách làm: **đắp thêm một khung dày 3,0mm** lên vách trước, không dời đỉnh nào
+của lưới gốc. Khung phủ `x ±16,0`, `z −37,5..−0,5`, chừa lỗ `26 × 20`.
+
+Vùng phủ rộng hơn mép lỗ là có chủ đích — bản gốc có **hai dải gờ đỡ OLED chỉ
+dày 0,5–0,8mm** nằm ngay trên và dưới cửa sổ (`z −36..−33` và `z −2..−1`).
+Bên in 3D báo chỗ này quá mỏng. Khung mới trùm hết:
+
+| Bề dày vách trước | Gốc | Sau khi sửa |
+|---|---|---|
+| 0,5–0,8mm | 1.362 điểm | **13 điểm** |
+| ≥2,5mm | 2.858 điểm | 6.794 điểm |
+
+> ⚠️ Lần đầu mình thu cửa sổ bằng cách **dời đỉnh** — cách đó kéo giãn tam
+> giác quanh lỗ thành màng mỏng, đẩy tỉ lệ vách dưới 1,0mm từ 6,1% lên 22,0%.
+> Sửa hình học lưới thì **cộng thêm khối luôn an toàn hơn dời đỉnh**.
 
 **2. Bỏ giàn đỡ tay: thân `109` → `69mm`**
 
