@@ -64,7 +64,26 @@ Bên in 3D báo chỗ này quá mỏng. Khung mới trùm hết:
 > giác quanh lỗ thành màng mỏng, đẩy tỉ lệ vách dưới 1,0mm từ 6,1% lên 22,0%.
 > Sửa hình học lưới thì **cộng thêm khối luôn an toàn hơn dời đỉnh**.
 
-**2. Bỏ giàn đỡ tay: thân `109` → `69mm`**
+**2. Nới hai rãnh servo trên sàn: `11,75` → `13,00mm`**
+
+Hai khay servo hông nằm trên sàn, servo đặt lên rồi trục xuyên xuống chân.
+Đo ở lưới 0,25mm:
+
+| | Servo SG90 | Rãnh gốc | Sau khi nới |
+|---|---|---|---|
+| Dài (cả tai bắt vít) | 32,2mm | 34,0mm ✅ | 34,0mm |
+| **Rộng** | 12,2mm | **11,75mm ❌** | **13,00mm ✅** |
+
+Chiều dài vốn đã khớp, chỉ bề rộng hụt 0,45mm — mà máy in FDM còn co thêm
+0,1–0,3mm nữa. Nới lên 13,0mm để dư 0,8mm.
+
+Chỉ dời thành rãnh **phía trong** thân. Thành phía ngoài chỉ cách vách thân
+~0,3mm, động vào là thủng.
+
+> Phải dời cả **gân phía trên sàn**, không chỉ mặt sàn. Lần đầu chỉ dời phần
+> ở `z ≤ −35` nên rãnh rộng ra mà gân vẫn chặn, đo lại chỉ được 12,25mm.
+
+**3. Bỏ giàn đỡ tay: thân `109` → `69mm`**
 
 Thân thật chỉ rộng 69mm (`|x| ≤ 34,5`); toàn bộ phần từ 36 đến 54,5mm là giàn
 đỡ cánh tay. Cắt phẳng tại `|x| = 34,6`, vá mặt cắt bằng Delaunay.
