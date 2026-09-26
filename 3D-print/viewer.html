@@ -205,7 +205,7 @@ window.OTTO_VOX = {
 
 </script>
 <script>
-window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "host": "body"}, "spk": {"rx": 90, "ry": 0, "min": [-12.5, 4.0, -8.5], "host": "body"}, "servo": {"rx": 0, "ry": 0, "host": "body", "min": [-16.6, 4.0, -31.5]}, "servo2": {"rx": 0, "ry": 90, "host": "body", "min": [-31.6, 9.0, -28.5]}, "esp32": {"rx": 0, "ry": 90, "host": "body", "min": [18.4, 9.0, -28.5]}, "amp": {"rx": 0, "ry": 0, "host": "body", "min": [-8.6, 12.0, -16.5]}, "mic": {"rx": 0, "ry": 0, "host": "body", "min": [-27.6, 9.0, 6.5]}, "ip5306": {"rx": 0, "ry": 0, "host": "head", "min": [-25.0, 2.0, -27.0], "box": [50.0, 8.0, 25.0]}, "batt": {"rx": 0, "ry": 0, "host": "head", "min": [-27.0, 2.0, 1.0], "box": [54.0, 10.0, 28.0]}};
+window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 11.0, 19.5]}, "spk": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 3.0, -8.5]}, "esp32": {"rx": 0, "ry": 0, "host": "body", "min": [-28.6, 10.0, -32.5]}, "ip5306": {"rx": 0, "ry": 0, "host": "body", "min": [-25.6, 25.0, -32.5], "box": [50.0, 8.0, 25.0]}, "amp": {"rx": 0, "ry": 0, "host": "body", "min": [-9.6, 10.0, -4.5]}, "mic": {"rx": 90, "ry": 90, "host": "body", "min": [-32.6, 3.0, -4.5]}, "batt": {"rx": 0, "ry": 0, "host": "body", "min": [-31.6, 32.0, -5.5], "box": [62, 8, 22]}};
 
 </script>
 <script>
@@ -504,16 +504,16 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "ho
 
   function showPlan() {
     var L = window.OTTO_LAYOUT || {};
-    ['body','head'].forEach(function (k) {
+    ['body'].forEach(function (k) {
       var x = meshes[k]; if (!x) return;
       x.visible = true; x.material = matGhost;
-      x.position.set(0, x.userData.floor + (k === 'head' ? HEAD_Y : 0), 0);
+      x.position.set(0, x.userData.floor, 0);
       x.updateMatrixWorld(true);
       var bb = new THREE.Box3().setFromObject(x), cc = bb.getCenter(new THREE.Vector3());
       x.position.x -= cc.x; x.position.z -= cc.z;
       x.updateMatrixWorld(true);
     });
-    ['thigh1','foot1','thigh','foot','switch','bootbtn'].forEach(function (k) {
+    ['thigh1','foot1','thigh','foot','switch','bootbtn','head'].forEach(function (k) {
       if (meshes[k]) meshes[k].visible = false;
     });
     Object.keys(comps).forEach(function (k) {
@@ -522,13 +522,9 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "ho
       mh.visible = true;
       placeAt(mh, sp, sp.host === 'head' ? HEAD_Y : 0);
     });
-    var all = new THREE.Box3();
-    ['body','head'].forEach(function (k) {
-      if (meshes[k]) all.union(new THREE.Box3().setFromObject(meshes[k]));
-    });
-    frame(all, .62); place();
+    frame(new THREE.Box3().setFromObject(meshes.body), .66); place();
     $('badge').textContent = 'Bố trí đề xuất';
-    $('read').textContent = 'thân + đầu · 9 món';
+    $('read').textContent = 'tất cả vừa trong thân · 7 món';
   }
 
   function setMode(m) {
@@ -538,9 +534,11 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "ho
     if (m === 'plan') {
       $('mover').hidden = true; $('shellPick').hidden = true;
       $('railTitle').textContent = 'Bố trí';
-      $('note').innerHTML = 'Thân và đầu để <b>mờ</b> cho nhìn xuyên. ' +
-        'Hai món dẹt — <b>mạch IP5306</b> và <b>pin</b> — nằm trong đầu vì thân đã hết chỗ. ' +
-        'Kéo để xoay, lăn để phóng.';
+      $('note').innerHTML = 'Thân để <b>mờ</b> cho nhìn xuyên. Xếp thành ba tầng: ' +
+        '<b>sàn</b> có loa và mic, <b>giữa</b> có ESP32 nằm ngang cùng khuếch đại, ' +
+        '<b>trên</b> có IP5306 và pin. OLED áp sau cửa sổ. ' +
+        'Servo không có trong danh sách vì chúng thuộc cụm chân, không chiếm chỗ trong thân. ' +
+        'Bấm tên để ẩn/hiện từng món.';
       buildList(); showPlan();
       return;
     }
@@ -609,15 +607,13 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "ho
   function buildList() {
     var list = $('list'); list.innerHTML = '';
     var PLAN_ROWS = [
-      { k:'oled',   vi:'OLED SSD1306',  d:[27.6,27.8,10.9], c:0x4a5560, at:'thân · sau cửa sổ' },
-      { k:'spk',    vi:'Loa 8Ω 2W',     d:[25.0,15.0,5.0],  c:0x497d52, at:'thân · trên lưới loa' },
-      { k:'servo',  vi:'Servo hông T',  d:[32.2,29.8,12.5], c:0x2f6f66, at:'thân · sau trái' },
-      { k:'servo2', vi:'Servo hông P',  d:[32.2,29.8,12.5], c:0x3d8a80, at:'thân · sau phải' },
-      { k:'esp32',  vi:'ESP32',         d:[54.8,25.5,12.4], c:0x3f6fa8, at:'thân · dựng đứng, hông phải' },
-      { k:'amp',    vi:'Khuếch đại',    d:[18.0,17.9,19.4], c:0xa8433a, at:'thân · giữa' },
-      { k:'mic',    vi:'Mic INMP441',   d:[14.0,14.0,11.4], c:0x7d5590, at:'thân · hông trái' },
-      { k:'ip5306', vi:'Mạch IP5306',   d:[50.0,25.0,8.0],  c:0x9a6b2f, at:'ĐẦU' },
-      { k:'batt',   vi:'Pin ~1000mAh',  d:[54.0,28.0,10.0], c:0x7d5590, at:'ĐẦU' }
+      { k:'oled',   vi:'OLED SSD1306', d:[27.6,27.8,10.9], c:0x4a5560, at:'áp sau cửa sổ' },
+      { k:'spk',    vi:'Loa 8Ω 2W',    d:[25.0,15.0,5.0],  c:0x497d52, at:'nằm sát sàn, trên lưới thoát âm' },
+      { k:'esp32',  vi:'ESP32',        d:[54.8,25.5,12.4], c:0x3f6fa8, at:'nằm ngang, sát vách sau' },
+      { k:'ip5306', vi:'Mạch IP5306',  d:[50.0,25.0,8.0],  c:0x9a6b2f, at:'nằm ngang, ngay trên ESP32' },
+      { k:'amp',    vi:'Khuếch đại',   d:[18.0,17.9,19.4], c:0xa8433a, at:'giữa thân' },
+      { k:'mic',    vi:'Mic INMP441',  d:[14.0,14.0,11.4], c:0x7d5590, at:'hông trái, sát sàn' },
+      { k:'batt',   vi:'Pin ~740mAh',  d:[62.0,22.0,8.0],  c:0xb0554a, at:'tầng trên cùng' }
     ];
     var rows = mode === 'plate' ? SHELL : (mode === 'plan' ? PLAN_ROWS : COMP);
     $('railCount').textContent = mode === 'plate' ? '8' : rows.length;
@@ -749,7 +745,7 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "ho
         comps.servo2 = s2; group.add(s2);
       }
       comps.ip5306 = boxMesh(50, 8, 25, 0x9a6b2f);
-      comps.batt   = boxMesh(54, 10, 28, 0x7d5590);
+      comps.batt   = boxMesh(62, 8, 22, 0xb0554a);
       [comps.ip5306, comps.batt].forEach(function (m) {
         m.userData.on = true; m.visible = false; m.userData.pts = [];
         group.add(m);
