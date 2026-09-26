@@ -64,32 +64,55 @@ Bên in 3D báo chỗ này quá mỏng. Khung mới trùm hết:
 > giác quanh lỗ thành màng mỏng, đẩy tỉ lệ vách dưới 1,0mm từ 6,1% lên 22,0%.
 > Sửa hình học lưới thì **cộng thêm khối luôn an toàn hơn dời đỉnh**.
 
-**2. Nới hai rãnh servo trên sàn: `11,75` → `13,00mm`**
+**2. Rãnh servo trên sàn: giữ nguyên `11,75mm`**
 
-Hai khay servo hông nằm trên sàn, servo đặt lên rồi trục xuyên xuống chân.
-Đo ở lưới 0,25mm:
+Đã từng nới lên `13,00mm` rồi **bỏ**. Đo ở lưới 0,25mm:
 
-| | Servo SG90 | Rãnh gốc | Sau khi nới |
-|---|---|---|---|
-| Dài (cả tai bắt vít) | 32,2mm | 34,0mm ✅ | 34,0mm |
-| **Rộng** | 12,2mm | **11,75mm ❌** | **13,00mm ✅** |
+| | Servo SG90 | Rãnh gốc |
+|---|---|---|
+| Dài (cả tai bắt vít) | 32,2mm | 34,0mm ✅ |
+| **Rộng** | 12,2mm | **11,75mm** |
 
-Chiều dài vốn đã khớp, chỉ bề rộng hụt 0,45mm — mà máy in FDM còn co thêm
-0,1–0,3mm nữa. Nới lên 13,0mm để dư 0,8mm.
+Bề rộng hụt 0,45mm so với số liệu tra cứu. Nhưng đây là thiết kế Otto vốn dành
+cho SG90 và đã có vô số người in chạy được, nên nhiều khả năng nó cố ý lắp
+chật. Nếu chật thật thì gọt bằng dao dễ hơn in lại cả thân nhiều.
 
-Chỉ dời thành rãnh **phía trong** thân. Thành phía ngoài chỉ cách vách thân
-~0,3mm, động vào là thủng.
-
-> Phải dời cả **gân phía trên sàn**, không chỉ mặt sàn. Lần đầu chỉ dời phần
-> ở `z ≤ −35` nên rãnh rộng ra mà gân vẫn chặn, đo lại chỉ được 12,25mm.
+Cách nới cũ là dời đỉnh thành rãnh phía trong vào 1,25mm — không dùng được vì
+thành phía ngoài chỉ cách vách thân ~0,3mm nên không đẩy ra được, mà dời phía
+trong thì các đỉnh từ `|x| 20,3` trở ra nằm ngoài vùng chọn vẫn đứng yên, kéo
+tam giác nối giữa thành màng. Lại đúng cái lỗi "dời đỉnh làm mỏng vách hàng
+xóm" đã gặp ở cửa sổ OLED.
 
 **3. Bỏ giàn đỡ tay: thân `109` → `69mm`**
 
 Thân thật chỉ rộng 69mm (`|x| ≤ 34,5`); toàn bộ phần từ 36 đến 54,5mm là giàn
 đỡ cánh tay. Cắt phẳng tại `|x| = 34,6`, vá mặt cắt bằng Delaunay.
 
-Chất lượng lưới sau khi sửa: **207 cạnh hở trên 111.502 tam giác (0,19%)** —
-máy cắt lớp tự vá. Bản gốc kín tuyệt đối (0 cạnh hở, 85 cạnh chồng).
+## Kiểm trước khi gửi đi in
+
+```
+tệp              tam giác  cạnh hở  suy biến  phi-mf   khối rời
+────────────────────────────────────────────────────────────────
+vo-than.stl        111.550      32       122      69      1
+vo-dau.stl         103.634       0         0       0      1
+vo-dui.stl         121.794       0         0       0      2
+vo-ban-chan.stl     43.240       0         0       0      2
+vo-cong-tac.stl     10.812       0         0       0      1
+vo-nut-boot.stl     10.748       0         0       0      1
+```
+
+**`vo-dui.stl` và `vo-ban-chan.stl` mỗi tệp đã chứa sẵn 2 bản.** In một lần
+mỗi tệp là đủ cả đôi; đặt "2 cái" sẽ ra 4 cái.
+
+`vo-than.stl` báo 32 cạnh hở nhưng **không thủng thật**: bắn 4.000 tia xuyên
+ngang, không tia nào cắt lẻ lần. Đó là các đỉnh tách ở mức dưới micron tại mặt
+cắt giàn tay — hàn lại ở dung sai `0,01mm` thì còn 1, ở `0,1mm` thì còn 0. 69
+cạnh phi-manifold là chỗ khung cửa sổ cộng thêm chồng lên vách cũ, đúng như
+mong đợi khi hợp khối bằng cách ghép tam giác.
+
+Còn **một vùng 7mm² dày 0,40mm** ở `x −24,4..−20,4`, `z −32,4..−31,2`. Chỗ này
+**có sẵn trong bản gốc**, không phải do sửa; bên in xem bản trước cũng không
+nhắc tới nó. Rộng đúng một đường đùn của vòi 0,4mm.
 
 ## Khoang trong thân — số đo để bố trí linh kiện
 
