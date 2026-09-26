@@ -108,6 +108,41 @@ dụng dài 75–77mm, trong khi khoang rộng nhất chỉ 65mm. Thử ở mọ
 Bốn trụ `4 × 4mm` cao `4mm`, cách nhau `22 × 22mm` ở giữa sàn là **vấu bắt
 loa**; mấy chấm tròn quanh đó là lưới thoát âm. Đừng đặt gì đè lên.
 
+Khoang trong **đầu** (`vo-dau.stl`), đo cùng cách:
+
+```
+hốc rỗng lớn nhất        56 (ngang) × 16 (cao) × 58 (sâu) mm  =  52 cm³
+```
+
+## Bố trí với pin 10 × 40 × 58mm
+
+Cục pin này dài `58mm`, gần bằng cả chiều sâu khoang, nên nó chiếm trọn một
+tầng. Bộ giải xếp hình chạy trên lưới voxel 1mm, khe hở 1mm quanh mỗi món:
+
+```
+tầng      Y (mm)      món
+────────────────────────────────────────────────────────────
+sàn        3 – 10     loa 25×15×5, úp lên lưới thoát âm
+giữa      10 – 22     PIN 58×10×40 nằm ngang, đè lên loa
+                      mic INMP441 nhét cạnh pin, Z 10.5..26.5
+trên      22 – 37     ESP32 nằm ngang, sát vách sau
+          22 – 42     khuếch đại dựng đứng, giữa thân
+cửa sổ    11 – 41     OLED áp sau khung
+────────────────────────────────────────────────────────────
+trong đầu              mạch IP5306 50×25×8 nằm ngang
+```
+
+**Thứ tự xếp quan trọng.** Xếp pin sau cùng thì không hướng nào lọt; xếp pin
+trước thì vừa. Lý do là mặt bằng `58 × 40mm` của nó cần một tầng liền mạch, mà
+ESP32 với IP5306 xếp trước sẽ cắt khoang thành những lát mỏng vô dụng.
+
+**IP5306 phải dời lên đầu.** Trần khoang thân chỉ cao `40mm` tính từ sàn, mà
+pin `12mm` + ESP32 `15mm` + IP5306 `10mm` đã là `37mm` — cộng thêm `7mm` loa ở
+dưới là tràn. Đặt nghiêng mạch cũng không cứu được vì nó dài `50mm`. Hốc đầu
+`56 × 16 × 58mm` thì chứa nó thoải mái, còn thừa chỗ đi dây xuống thân.
+
+Pin không nhét được vào đầu: hốc rộng `56mm`, pin dài `58mm` — thiếu 2mm.
+
 ## Tên tệp
 
 Không dấu, có gạch nối. Tên gốc là tiếng Trung, đọc được nhưng phải chỉnh
