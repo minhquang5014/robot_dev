@@ -116,6 +116,7 @@
   <div class="modes">
     <button id="mPlate" aria-pressed="true">Khay in</button>
     <button id="mFit" aria-pressed="false">Ướm linh kiện</button>
+    <button id="mPlan" aria-pressed="false">Bố trí đề xuất</button>
   </div>
 
   <div class="layout">
@@ -204,6 +205,10 @@ window.OTTO_VOX = {
 
 </script>
 <script>
+window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "min": [-13.8, 11.0, 19.6], "host": "body"}, "spk": {"rx": 90, "ry": 0, "min": [-12.5, 4.0, -8.5], "host": "body"}, "servo": {"rx": 0, "ry": 0, "host": "body", "min": [-16.6, 4.0, -31.5]}, "servo2": {"rx": 0, "ry": 90, "host": "body", "min": [-31.6, 9.0, -28.5]}, "esp32": {"rx": 0, "ry": 90, "host": "body", "min": [18.4, 9.0, -28.5]}, "amp": {"rx": 0, "ry": 0, "host": "body", "min": [-8.6, 12.0, -16.5]}, "mic": {"rx": 0, "ry": 0, "host": "body", "min": [-27.6, 9.0, 6.5]}, "ip5306": {"rx": 0, "ry": 0, "host": "head", "min": [-25.0, 2.0, -27.0], "box": [50.0, 8.0, 25.0]}, "batt": {"rx": 0, "ry": 0, "host": "head", "min": [-27.0, 2.0, 1.0], "box": [54.0, 10.0, 28.0]}};
+
+</script>
+<script>
 (function () {
   // Chi tiet co the uom linh kien vao. Dui va ban chan lay MOT chiec, tach
   // ra tu tep von xep 2 ban sao canh nhau tren khay in.
@@ -256,6 +261,15 @@ window.OTTO_VOX = {
   var matGhost = new THREE.MeshStandardMaterial({ color: new THREE.Color(tok('--mesh')),
     roughness:.7, metalness:0, transparent:true, opacity:.20, depthWrite:false, side: THREE.DoubleSide });
   var matWire = new THREE.MeshBasicMaterial({ color: new THREE.Color(tok('--mesh-dim')), wireframe:true });
+
+  // IP5306 va pin khong co tep STL — dung khoi hop don gian, dung kich thuoc.
+  function boxMesh(w, h, d, color) {
+    var g = new THREE.BoxGeometry(w, h, d);
+    var m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+      color: color, roughness: .5, metalness: .1 }));
+    m.userData.floor = 0;
+    return m;
+  }
 
   var meshes = {}, comps = {}, mode = 'plate', focus = null, spin = false, wire = false, sel = null;
   var seeThru = false, collide = true, shell = 'body';
@@ -473,9 +487,63 @@ window.OTTO_VOX = {
   }
 
   // ---- doi che do ----
+  // Dat mot khoi sao cho GOC hop bao cua no roi vao toa do mong muon.
+  // Khong dat thang position vi moi luoi co goc rieng, khong trung hop bao.
+  function placeAt(mesh, spec, hostY) {
+    mesh.rotation.set(-Math.PI/2 + (spec.rx||0)*Math.PI/180, (spec.ry||0)*Math.PI/180, 0);
+    if (mesh.geometry.type === 'BoxGeometry') mesh.rotation.set(0, 0, 0);
+    mesh.position.set(0, 0, 0); mesh.updateMatrixWorld(true);
+    var b = new THREE.Box3().setFromObject(mesh);
+    mesh.position.set(spec.min[0] - b.min.x,
+                      spec.min[1] + hostY - b.min.y,
+                      spec.min[2] - b.min.z);
+    mesh.updateMatrixWorld(true);
+  }
+
+  var HEAD_Y = 42;                       // dau dat chong len than
+
+  function showPlan() {
+    var L = window.OTTO_LAYOUT || {};
+    ['body','head'].forEach(function (k) {
+      var x = meshes[k]; if (!x) return;
+      x.visible = true; x.material = matGhost;
+      x.position.set(0, x.userData.floor + (k === 'head' ? HEAD_Y : 0), 0);
+      x.updateMatrixWorld(true);
+      var bb = new THREE.Box3().setFromObject(x), cc = bb.getCenter(new THREE.Vector3());
+      x.position.x -= cc.x; x.position.z -= cc.z;
+      x.updateMatrixWorld(true);
+    });
+    ['thigh1','foot1','thigh','foot','switch','bootbtn'].forEach(function (k) {
+      if (meshes[k]) meshes[k].visible = false;
+    });
+    Object.keys(comps).forEach(function (k) {
+      var sp = L[k], mh = comps[k]; if (!mh) return;
+      if (!sp) { mh.visible = false; return; }
+      mh.visible = true;
+      placeAt(mh, sp, sp.host === 'head' ? HEAD_Y : 0);
+    });
+    var all = new THREE.Box3();
+    ['body','head'].forEach(function (k) {
+      if (meshes[k]) all.union(new THREE.Box3().setFromObject(meshes[k]));
+    });
+    frame(all, .62); place();
+    $('badge').textContent = 'Bố trí đề xuất';
+    $('read').textContent = 'thân + đầu · 9 món';
+  }
+
   function setMode(m) {
     mode = m; focus = null; sel = null;
     press($('mPlate'), m === 'plate'); press($('mFit'), m === 'fit');
+    press($('mPlan'), m === 'plan');
+    if (m === 'plan') {
+      $('mover').hidden = true; $('shellPick').hidden = true;
+      $('railTitle').textContent = 'Bố trí';
+      $('note').innerHTML = 'Thân và đầu để <b>mờ</b> cho nhìn xuyên. ' +
+        'Hai món dẹt — <b>mạch IP5306</b> và <b>pin</b> — nằm trong đầu vì thân đã hết chỗ. ' +
+        'Kéo để xoay, lăn để phóng.';
+      buildList(); showPlan();
+      return;
+    }
     $('mover').hidden = true;
     $('railTitle').textContent = m === 'plate' ? 'Chi tiết vỏ' : 'Linh kiện';
     $('note').innerHTML = m === 'plate'
@@ -492,6 +560,7 @@ window.OTTO_VOX = {
 
     buildList();
     $('shellPick').hidden = (m !== 'fit');
+    if (meshes.head) meshes.head.material = wire ? matWire : matShell;
     if (m === 'plate') showAllPlate();
     else setShell(shell);
   }
@@ -539,26 +608,44 @@ window.OTTO_VOX = {
   // ---- danh sach ----
   function buildList() {
     var list = $('list'); list.innerHTML = '';
-    var rows = mode === 'plate' ? SHELL : COMP;
+    var PLAN_ROWS = [
+      { k:'oled',   vi:'OLED SSD1306',  d:[27.6,27.8,10.9], c:0x4a5560, at:'thân · sau cửa sổ' },
+      { k:'spk',    vi:'Loa 8Ω 2W',     d:[25.0,15.0,5.0],  c:0x497d52, at:'thân · trên lưới loa' },
+      { k:'servo',  vi:'Servo hông T',  d:[32.2,29.8,12.5], c:0x2f6f66, at:'thân · sau trái' },
+      { k:'servo2', vi:'Servo hông P',  d:[32.2,29.8,12.5], c:0x3d8a80, at:'thân · sau phải' },
+      { k:'esp32',  vi:'ESP32',         d:[54.8,25.5,12.4], c:0x3f6fa8, at:'thân · dựng đứng, hông phải' },
+      { k:'amp',    vi:'Khuếch đại',    d:[18.0,17.9,19.4], c:0xa8433a, at:'thân · giữa' },
+      { k:'mic',    vi:'Mic INMP441',   d:[14.0,14.0,11.4], c:0x7d5590, at:'thân · hông trái' },
+      { k:'ip5306', vi:'Mạch IP5306',   d:[50.0,25.0,8.0],  c:0x9a6b2f, at:'ĐẦU' },
+      { k:'batt',   vi:'Pin ~1000mAh',  d:[54.0,28.0,10.0], c:0x7d5590, at:'ĐẦU' }
+    ];
+    var rows = mode === 'plate' ? SHELL : (mode === 'plan' ? PLAN_ROWS : COMP);
     $('railCount').textContent = mode === 'plate' ? '8' : rows.length;
     rows.forEach(function (p) {
       var b = document.createElement('button');
       b.className = 'part'; b.id = 'p-' + p.k; b.setAttribute('aria-pressed', 'false');
-      var sw = mode === 'fit' ? '<span class="swatch" style="background:#' +
-               p.c.toString(16).padStart(6,'0') + '"></span>' : '<span></span>';
+      var sw = (mode === 'fit' || mode === 'plan')
+        ? '<span class="swatch" style="background:#' + p.c.toString(16).padStart(6,'0') + '"></span>'
+        : '<span></span>';
       b.innerHTML = sw +
         '<span class="nm">' + p.vi + '</span>' +
         '<span class="qty">' + (p.qty > 1 ? '×' + p.qty : '') + '</span>' +
-        '<span class="dim">' + p.d.map(function (v) { return v.toFixed(1); }).join(' × ') + '</span>';
+        '<span class="dim">' + p.d.map(function (v) { return v.toFixed(1); }).join(' × ') +
+        (p.at ? '  ·  ' + p.at : '') + '</span>';
       b.addEventListener('click', function () {
         if (mode === 'plate') { focus === p.k ? showAllPlate() : showOnePlate(p); }
-        else { selectComp(p); }
+        else if (mode === 'plan') {
+          var mh = comps[p.k]; if (!mh) return;
+          mh.visible = !mh.visible;                 // bam de an/hien tung mon
+          b.dataset.off = mh.visible ? '0' : '1';
+        } else { selectComp(p); }
       });
       list.appendChild(b);
     });
     paintList();
   }
   function paintList() {
+    if (mode === 'plan') return;
     var rows = mode === 'plate' ? SHELL : COMP;
     rows.forEach(function (p) {
       var el = $('p-' + p.k); if (!el) return;
@@ -615,6 +702,7 @@ window.OTTO_VOX = {
   function press(b, v) { b.setAttribute('aria-pressed', String(v)); }
   $('mPlate').addEventListener('click', function () { setMode('plate'); });
   $('mFit').addEventListener('click', function () { setMode('fit'); });
+  $('mPlan').addEventListener('click', function () { setMode('plan'); });
   $('shBody').addEventListener('click', function () { setShell('body'); });
   $('shThigh1').addEventListener('click', function () { setShell('thigh1'); });
   $('shFoot1').addEventListener('click', function () { setShell('foot1'); });
@@ -650,6 +738,23 @@ window.OTTO_VOX = {
         var m = makeMesh(p.k, matShell); if (!m) return;
         m.userData.floor = m.position.y; meshes[p.k] = m; group.add(m);
       });
+      // Servo thu hai: cung luoi, khac the hien
+      if (comps.servo) {
+        var s2 = new THREE.Mesh(comps.servo.geometry, comps.servo.material.clone());
+        s2.material.color.setHex(0x3d8a80);
+        s2.rotation.copy(comps.servo.rotation);
+        s2.userData.floor = comps.servo.userData.floor;
+        s2.userData.pts = comps.servo.userData.pts;
+        s2.userData.on = true; s2.visible = false;
+        comps.servo2 = s2; group.add(s2);
+      }
+      comps.ip5306 = boxMesh(50, 8, 25, 0x9a6b2f);
+      comps.batt   = boxMesh(54, 10, 28, 0x7d5590);
+      [comps.ip5306, comps.batt].forEach(function (m) {
+        m.userData.on = true; m.visible = false; m.userData.pts = [];
+        group.add(m);
+      });
+
       ['thigh1','foot1'].forEach(function (k) {        // mot chiec don le
         var m = makeMesh(k, matShell); if (!m) return;
         m.userData.floor = m.position.y; m.visible = false;
