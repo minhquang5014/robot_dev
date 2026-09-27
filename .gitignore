@@ -25,3 +25,6 @@ server/out/
 
 # ---- Moi truong Python ----
 .venv/
+
+# Fork tham khao, co .git rieng — khong nhung vao repo nay
+xiaozhi-esp32-server/

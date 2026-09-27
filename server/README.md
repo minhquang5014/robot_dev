@@ -110,6 +110,87 @@ nói đã dừng** (VAD) rồi mới trả lời. Chế độ `manual` chỉ dù
 | `{"type":"tts","state":"stop"}` | Chế độ `auto` thì quay lại nghe tiếp |
 | binary | Opus theo `audio_params` trong `hello` của server |
 
+## Kết quả đo — 27/09/2026 (tối ưu độ trễ)
+
+Bạn thử máy báo "trả lời rất lâu, nhìn như bị giật lag". Đo lại rồi sửa bốn chỗ.
+
+### Trước / sau
+
+Trung vị 10 lượt (trừ STT đo riêng 1 lượt có tệp thật):
+
+| chặng | trước | sau | biên độ sau |
+|---|---|---|---|
+| STT | 507 ms | 535 ms | — |
+| LLM | 1337 ms | **538 ms** | 326–1624 |
+| TTS tới byte đầu | 778 ms | **433 ms** | 381–494 |
+| cảm xúc gửi được | (không có) | **477 ms** | 304–1593 |
+| **Tiếng đầu tiên** | **2622 ms** | **996 ms** | 745–2073 |
+
+Cộng STT vào thì trọn vòng còn khoảng **1,5 giây**, trước là 2,6 giây.
+
+Biên độ LLM rộng (326–1624 ms) là do free tier của Groq, không phải do code —
+cùng một câu hỏi chạy hai lần chênh nhau gấp năm. TTS thì rất đều (381–494 ms).
+
+### 1. Dùng lại `requests.Session` — khoản lớn nhất
+
+Code cũ gọi `requests.post()` rời, nên **mỗi lời gọi bắt tay TLS lại từ đầu**.
+Mỗi lượt nói có hai lời gọi Groq (STT + LLM).
+
+| | 4 lượt đo | trung vị |
+|---|---|---|
+| mở kết nối mới mỗi lần | 543 / 1671 / 344 / 683 | 683 ms |
+| dùng lại `Session` | 438 / 236 / 250 / 1206 | **438 ms** |
+
+### 2. Stream LLM, gửi cảm xúc trước tiếng nói
+
+Tag `[happy]` nằm đầu câu nên về rất sớm: token đầu tiên 292 ms, cả câu
+320–673 ms. `run_turn_stream()` giờ nhận `on_emotion(ten)` và gọi nó ngay khi
+bắt được tag — đo thực tế **395–1109 ms, trung vị 601 ms**, tức sớm hơn tiếng
+nói khoảng nửa giây.
+
+Việc này **không giảm mili-giây nào** của tổng độ trễ. Nó chữa đúng cái cảm
+giác "treo": mặt OLED đổi biểu cảm ngay, người dùng biết robot đã nghe thấy.
+
+### 3. Đổi TTS sang xAI — vì ổn định, KHÔNG phải vì nhanh hơn
+
+Đo thời gian tới **byte đầu tiên**, tính từ trước khi gửi yêu cầu:
+
+| | byte đầu | hỏng |
+|---|---|---|
+| EdgeTTS | 522 ms | 1/10 lượt, có lượt vọt 2279 ms |
+| xAI `POST /v1/tts` | 514 ms | 0/30 lượt |
+| xAI WebSocket thường trực | 430–473 ms | 0/15 lượt |
+
+Hai dịch vụ **nhanh như nhau**. Cái chữa được "giật lag" là độ ổn định: EdgeTTS
+từng đo hỏng 31% (16/09), và một lần hỏng giữa câu là người dùng thấy đứng hình.
+
+> ⚠️ Lần đầu đo tôi tưởng xAI nhanh 2.4 lần (215 ms). Sai: đồng hồ bấm **sau**
+> khi `requests.post(stream=True)` trả về, mà lúc đó header đã về rồi nên đã
+> nuốt mất phần lớn độ trễ. Đo `stream=True` thì phải bấm giờ TRƯỚC khi gửi.
+
+Cũng vì vậy **không dùng WebSocket thường trực**: bỏ hẳn bắt tay mà chỉ nhanh
+thêm ~70 ms, chứng tỏ ~450 ms kia là máy chủ khởi động tổng hợp chứ không phải
+chi phí kết nối. Không đáng đổi lấy việc phải nuôi một kết nối sống.
+
+xAI còn xuất **PCM 16 kHz thẳng** (`output_format`), bỏ được bước giải mã MP3
+trước khi mã hoá Opus cho firmware. Gọi `run_turn_stream(..., pcm=True)`.
+
+### 4. Không cắt câu thành từng mệnh đề
+
+Bản mẫu `xiaozhi-esp32-server` cắt ở dấu phẩy đầu tiên để đẩy TTS sớm. Mẹo đó
+ăn với TTS giữ phiên thường trực, **không ăn ở đây**: mỗi lần gọi đều trả
+~450 ms cố định, nên cắt làm hai khúc chỉ tốn thêm 450 ms và để ra khoảng lặng
+giữa câu. Đo được: câu 3 chữ và câu 25 chữ chênh nhau 23 ms.
+
+### Cảnh báo nếu lấy code bản mẫu
+
+```python
+self.punctuations = ("。", "？", "?", "！", "!", "；", ";", "：")
+```
+
+Không có dấu chấm ASCII `.`. Bộ dấu này viết cho tiếng Trung. Câu tiếng Việt
+kết thúc bằng `.` sẽ không bao giờ kích hoạt cắt câu.
+
 ## Kết quả đo — 17/09/2026
 
 ### Chọn model: nhỏ nhất không phải nhanh nhất
