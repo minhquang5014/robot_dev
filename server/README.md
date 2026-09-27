@@ -44,18 +44,68 @@ async with contextlib.aclosing(pipeline.run_turn_stream(turn, audio_path=wav)) a
         ...   # turn.emotion đã có trước chunk đầu -> gửi cảm xúc trước
 ```
 
-### Server giao thức xiaozhi (Mốc 0)
+### Server giao thức xiaozhi
 
 ```bash
 python server/xiaozhi_server.py --port 8000    # mặc định chỉ nghe 127.0.0.1
 ```
 
-Mỗi lượt nghe, các gói Opus ESP32 gửi lên được lưu vào `server/out/ws_sessions/*.opuspkt`
-(mỗi gói: 2 byte độ dài little-endian + payload) để làm bước giải mã sau này.
+Đã nối trọn vòng: thiết bị gửi Opus → VAD thấy dứt câu → STT → LLM → TTS →
+mã hoá Opus → gửi ngược xuống loa. Ngữ cảnh hội thoại giữ trong kết nối (6 lượt
+gần nhất).
 
-Hiện đã kiểm bằng **thiết bị giả lập** gửi đúng chuỗi tin như firmware: OTA trả địa
-chỉ WebSocket, bắt tay `hello`, `listen` start/stop, đếm và lưu gói. **Chưa có ESP32
-thật nào gọi vào.**
+Thứ tự tin server gửi xuống mỗi lượt:
+
+```
+{"type":"llm","emotion":"happy"}                 ← SỚM NHẤT, trước cả tiếng nói
+{"type":"stt","text":"..."}
+{"type":"tts","state":"start"}
+{"type":"tts","state":"sentence_start","text":"..."}
+<gói Opus 60ms>  ×N                              ← gửi đúng nhịp phát
+{"type":"tts","state":"stop"}
+```
+
+Cảm xúc đi trước là có chủ ý: `run_turn_stream` gọi `on_emotion` ngay khi bắt
+được tag ở đầu câu LLM, đo được **sớm hơn tiếng nói ~875ms**. Mặt OLED đổi
+biểu cảm ngay nên robot không có vẻ bị treo.
+
+**Đo bằng thiết bị giả lập** (`scratchpad/fake_device.py`), 5 lượt liên tiếp,
+tính từ lúc VAD chốt câu đến khi có gói Opus đầu tiên:
+
+| | trung vị | biên độ |
+|---|---|---|
+| STT | 757 ms | 453–1664 |
+| LLM | 244 ms | 242–296 |
+| **tiếng đầu tiên** | **1412 ms** | 1232–2368 |
+
+Cộng thêm ~800ms VAD phải chờ im lặng mới dám chốt câu — đó là `silence_ms`
+trong `audio.SpeechDetector`, hạ xuống thì nhanh hơn nhưng dễ cắt ngang người
+đang ngập ngừng giữa câu.
+
+**Chưa có ESP32 thật nào gọi vào.**
+
+### Ba cái bẫy đã vấp khi làm phần audio
+
+**1. Gửi Ogg cho STT, đừng gửi WAV.** Cùng 3,16 giây tiếng:
+
+| | cỡ tệp | STT |
+|---|---|---|
+| WAV | 118 KB | 1324 ms |
+| Ogg/Opus | 8 KB | **377 ms** |
+
+Bản ghi chép ra y hệt nhau. Nút cổ chai là **dung lượng tải lên**, không phải
+độ dài tiếng — cắt im lặng hai đầu chỉ hạ 1324 xuống 1259 ms.
+
+**2. Chunk HTTP không chẵn byte.** `np.frombuffer(chunk, dtype=np.int16)` nổ
+`ValueError: buffer size must be a multiple of element size` khi một mẫu 16-bit
+bị cắt đôi giữa hai chunk. Gặp thật, **3/5 lượt chết**. Phải giữ byte lẻ lại
+ghép vào đầu chunk sau.
+
+**3. PyAV cần ép hai thứ.** Encoder mặc định cho khung 20ms (`frame_size` 320)
+trong khi firmware đợi 60ms — phải đặt `options={"frame_duration": "60"}`
+*trước* `open()`. Decoder libopus luôn chạy trong ở 48 kHz; đặt
+`ctx.sample_rate = 16000` **không có tác dụng** (giải mã 1 giây ra 47040 mẫu),
+phải cho qua `AudioResampler`.
 
 > **Chạy server ở máy chủ từ xa (Oracle, VPS), không chạy trên máy công ty.** ESP32
 > phải gọi được vào server, nghĩa là server phải nhận kết nối từ ngoài. Mở cổng hay
