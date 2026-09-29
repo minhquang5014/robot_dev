@@ -571,8 +571,14 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   // nen chi gan dung — chuyen dong moi la thu can nhin.
   var MOVES = {
     home:     { vi:'Về tư thế nghỉ', T:600,  A:[0,0,0,0],      O:[0,0,0,0],        P:[0,0,0,0] },
-    walk_f:   { vi:'Đi tới',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,-90,-90] },
-    walk_b:   { vi:'Đi lùi',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,90,90] },
+    // Pha ban chan +90/-90 la cai quyet dinh toi hay lui. Otto goi -90 la
+    // FORWARD, nhung anh xa tu `dir` cua Otto sang he truc cua rig nay phu
+    // thuoc cach gan canh tay doi luc lap rap — suy tu file STL khong ra.
+    // Do thuc te: -90 lam robot di ve phia LUNG (dz -152mm/3s trong khi mat
+    // robot o +Z). Nen o day "Di toi" dung +90. Da kiem ca 4 to hop dau
+    // (hong x co chan), khong to hop nao chua duoc — chi co cho nay.
+    walk_f:   { vi:'Đi tới',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,90,90] },
+    walk_b:   { vi:'Đi lùi',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,-90,-90] },
     turn_l:   { vi:'Quay trái',      T:2000, A:[30,0,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
     turn_r:   { vi:'Quay phải',      T:2000, A:[0,30,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
     swing:    { vi:'Lắc lư',         T:1000, A:[0,0,20,20],    O:[0,0,10,-10],     P:[0,0,0,0] },
@@ -825,6 +831,8 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     });
   }
 
+  window.__setMove = function (m) { sim.move = m; sim.t0 = performance.now(); resetGround(); };
+
   function animateRig(tms) {
     var rig = buildRig(), a = servoAngles(tms);
     for (var s = 0; s < 2; s++) {
@@ -834,9 +842,27 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
       // vao hong dui; truc that la lo Ø7.5 thang dung, noi can servo cam tu
       // san xuong. Khop voi ranh servo tren san: servo dung trong ranh, truc
       // chia xuong xuyen qua san.
-      rig.hip[s].rotation.y = (a[s] - 90) * Math.PI / 180 * (s === 0 ? 1 : -1);
-      // co chan: truc Z, ban chan nghieng
-      rig.ankle[s].rotation.z = (a[2 + s] - 90) * Math.PI / 180;
+      // HONG: khong dao guong. Hai servo hong cung goc thi hai chan xoay CUNG
+      // chieu trong khong gian — do la cai lam robot le xe ve phia truoc.
+      // Neu dao guong thi chung xoay nguoc nhau, robot chi van minh tai cho:
+      // do chinh xac la loi cu, "Di toi" quay 478 do trong 4 giay.
+      // Khop voi y nghia cac bai: Walk co A=[30,30] cung pha (hai chan cung
+      // xoay), Turn co A=[30,0] (chi mot chan xoay -> re).
+      rig.hip[s].rotation.y = (a[s] - 90) * Math.PI / 180;
+      // CO CHAN: CO dao guong, vi hai servo gan doi xung nhau. Kiem bang
+      // UpDown (O=[20,-20], pha=[-90,+90]): dao guong thi hai ban chan trung
+      // khit -> than len xuong thuan tuy, dung ten bai. Khong dao thi chung
+      // nguoc nhau, robot xoac chan. Jump dat 150/30 cung vay: dao guong ra
+      // +60/+60, hai ban chan cung day xuong de nhac than len.
+      //
+      // Dau TONG THE cua co chan quyet dinh robot di TOI hay di LUI, vi huong
+      // di sinh ra tu quan he pha giua xoay hong va nghieng co chan. Lan dau
+      // lay dau nguoc nen "Di toi" lai lui (do duoc Δz -202 trong khi mat
+      // robot — cua so OLED — nam o +Z). Lat dau o day khong dung toi chieu
+      // re, vi chieu re do HONG quyet dinh (Turn dat A=[30,0], chi mot chan
+      // xoay). Ca hai dieu nay deu tuy cach gan canh tay doi luc lap rap, suy
+      // tu file STL khong ra duoc.
+      rig.ankle[s].rotation.z = (a[2 + s] - 90) * Math.PI / 180 * (s === 0 ? -1 : 1);
     }
     groundRobot();
     $('read').textContent = 'servo  ' + a.map(function (v) {
@@ -904,6 +930,10 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     theta = t; phi = f; if (r) radius = r; place();
   };
   window.__radius = function () { return radius; };
+  window.__pose = function () {
+    return { x: gnd.dx, y: gnd.dy, z: gnd.dz, yaw: gnd.ry,
+             sup: gnd.key ? (gnd.key[0] === '0' ? 'trái' : 'phải') : '?' };
+  };
   window.__setRadius = function (r) { radius = r; place(); };
 
   function showSim() {
