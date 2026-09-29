@@ -117,10 +117,25 @@
     <button id="mPlate" aria-pressed="true">Khay in</button>
     <button id="mFit" aria-pressed="false">Ướm linh kiện</button>
     <button id="mPlan" aria-pressed="false">Bố trí đề xuất</button>
+    <button id="mSim" aria-pressed="false">Giả lập</button>
   </div>
 
   <div class="layout">
     <div>
+      <div class="panel" id="simPanel" hidden>
+        <h3>Màn OLED 128 × 64</h3>
+        <canvas id="oled" width="256" height="128"
+                style="width:100%;image-rendering:pixelated;border-radius:2px;
+                       background:#000;display:block"></canvas>
+        <div class="rowbtn">
+          <button id="simTalk">Nói thử một lượt</button>
+          <span class="coord" id="simClock" style="align-self:center">—</span>
+        </div>
+        <p class="hint" id="simNote">Bấm <b>Nói thử một lượt</b> để xem trình tự
+           thật: nghe → VAD chốt câu → STT → <b>cảm xúc hiện trước</b> → nói.
+           Mốc thời gian lấy từ số đo thật, không phải ước lượng.</p>
+      </div>
+
       <div class="rail">
         <h2><span id="railTitle">Chi tiết vỏ</span><span id="railCount"></span></h2>
         <div id="list"></div>
@@ -531,11 +546,274 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     $('read').textContent = '6 món trong thân · 1 món trong đầu';
   }
 
+
+  // ==================================================================
+  //  CHE DO GIA LAP
+  //  Toan bo so lieu duoi day lay tu ma nguon that, khong bia:
+  //   - bang bieu cam: main/display/oled_display.cc + emote.json
+  //   - tham so cac bai di: boards/otto-robot/otto_movements.cc
+  //   - do tre: do thuc 27/09/2026, ghi trong server/README.md
+  // ==================================================================
+
+  // Cong thuc dao dong cua Otto (otto_movements.cc, lop Oscillator):
+  //     goc = 90 + trim + bien_do * sin(2*pi*t/chu_ky + pha)
+  // Day la cong thuc DUNG, chep tu firmware. Vi tri khop thi do tu file STL
+  // nen chi gan dung — chuyen dong moi la thu can nhin.
+  var MOVES = {
+    home:     { vi:'Về tư thế nghỉ', T:600,  A:[0,0,0,0],      O:[0,0,0,0],        P:[0,0,0,0] },
+    walk_f:   { vi:'Đi tới',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,-90,-90] },
+    walk_b:   { vi:'Đi lùi',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,90,90] },
+    turn_l:   { vi:'Quay trái',      T:2000, A:[30,0,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
+    turn_r:   { vi:'Quay phải',      T:2000, A:[0,30,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
+    swing:    { vi:'Lắc lư',         T:1000, A:[0,0,20,20],    O:[0,0,10,-10],     P:[0,0,0,0] },
+    updown:   { vi:'Nhún lên xuống', T:1000, A:[0,0,20,20],    O:[0,0,20,-20],     P:[0,0,-90,90] },
+    tiptoe:   { vi:'Kiễng chân',     T:900,  A:[0,0,20,20],    O:[0,0,20,-20],     P:[0,0,0,0] },
+    jitter:   { vi:'Rung hông',      T:500,  A:[20,20,0,0],    O:[0,0,0,0],        P:[-90,90,0,0] },
+    ascend:   { vi:'Xoay dâng',      T:900,  A:[13,13,13,13],  O:[0,0,17,-9],      P:[-90,90,-90,90] },
+    moonwalk: { vi:'Moonwalk',       T:900,  A:[0,0,20,20],    O:[0,0,12,-12],     P:[0,0,-90,-150] },
+    crusaito: { vi:'Crusaito',       T:900,  A:[25,25,20,20],  O:[0,0,14,-14],     P:[101,101,0,-60] },
+    flapping: { vi:'Vỗ cánh',        T:1000, A:[12,12,20,20],  O:[0,0,10,-10],     P:[0,180,-90,90] },
+    jump:     { vi:'Nhảy',           T:500,  seq:[[90,90,150,30],[90,90,90,90]] }
+  };
+
+  // Bang bieu cam. `face` la khuon mat THAT SU hien ra — nhieu ten khac nhau
+  // dung chung mot mat. emote.json cua firmware: 22 muc nhung chi 9 mat.
+  var EMOS = [
+    ['neutral','😐','winking','Trung tính'],
+    ['happy','😀','Happy','Vui'],
+    ['laughing','😆','Happy','Cười to'],
+    ['funny','😂','Happy','Buồn cười'],
+    ['sad','😔','Sad','Buồn'],
+    ['angry','😠','angry','Giận'],
+    ['crying','😭','cry','Khóc'],
+    ['loving','😍','Happy','Yêu'],
+    ['embarrassed','😳','Happy','Ngượng'],
+    ['surprised','😲','Happy','Ngạc nhiên'],
+    ['shocked','😱','shocked','Sốc'],
+    ['thinking','🤔','confused','Đang nghĩ'],
+    ['winking','😉','neutral','Nháy mắt'],
+    ['cool','😎','Happy','Ngầu'],
+    ['relaxed','😌','Happy','Thư giãn'],
+    ['delicious','🤤','Happy','Ngon'],
+    ['kissy','😘','Happy','Hôn'],
+    ['confident','😏','Happy','Tự tin'],
+    ['sleepy','😴','sleep','Buồn ngủ'],
+    ['silly','😜','Happy','Nghịch'],
+    ['confused','🙄','confused','Bối rối']
+  ];
+
+  // Do tre THUC DO duoc, trung vi 10 luot (server/README.md 27/09/2026)
+  var LAT = { vad:800, stt:757, llm:244, emo:477, tts:433 };
+
+  var sim = {
+    move:'home', t0:0, until:0, emo:'neutral', say:'', phase:'', rig:null,
+    talkT:0, script:null, scriptAt:0
+  };
+
+  // ---- man OLED 128x64 ve bang canvas -----------------------------------
+  // oled_display.cc: nhan cam xuc ben TRAI la glyph Noto Emoji 30px, chu o
+  // ben phai. Khong phai mat hoat hinh — bo otto-robot moi co GIF, nhung bo
+  // do dung LCD 240x240 chu khong phai SSD1306.
+  function drawOled() {
+    var c = $('oled'); if (!c) return;
+    var g = c.getContext('2d'), W = c.width, H = c.height;
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    var row = EMOS.filter(function (e) { return e[0] === sim.emo; })[0] || EMOS[0];
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = Math.round(H * 0.46) + 'px "Segoe UI Emoji","Apple Color Emoji",sans-serif';
+    g.fillText(row[1], W * 0.19, H * 0.46);
+    g.fillStyle = '#fff';
+    g.font = '500 ' + Math.round(H * 0.13) + 'px Barlow, sans-serif';
+    g.textAlign = 'left';
+    var txt = sim.say || '';
+    if (sim.phase === 'nghe') txt = '● đang nghe…';
+    if (sim.phase === 'nghĩ') txt = '… đang nghĩ';
+    var words = txt.split(' '), line = '', lines = [], maxw = W * 0.62;
+    for (var i = 0; i < words.length; i++) {
+      var t = line ? line + ' ' + words[i] : words[i];
+      if (g.measureText(t).width > maxw && line) { lines.push(line); line = words[i]; }
+      else line = t;
+    }
+    if (line) lines.push(line);
+    lines = lines.slice(0, 4);
+    for (var j = 0; j < lines.length; j++) {
+      g.fillText(lines[j], W * 0.36, H * (0.28 + j * 0.17));
+    }
+    g.strokeStyle = '#2a2a2a'; g.lineWidth = 1;
+    g.strokeRect(.5, .5, W - 1, H - 1);
+  }
+
+  // ---- lap rap chan ------------------------------------------------------
+  // Khop do tu file STL: tam truc hong va truc co chan tren chi tiet dui
+  // cach nhau 19.5mm theo chieu cao. Servo hong truc doc X (dui vung truoc/
+  // sau), servo co chan truc doc Z (ban chan nghieng trai/phai) — suy ra tu
+  // ranh servo tren san rong 11.75mm theo X (dung be day than servo) va tu
+  // Jump dat hai ban chan 150/30 doi xung.
+  // Vi tri khop ĐO BẰNG THUẬT TOÁN, khong uoc luong: voxel hoa tung chi tiet
+  // roi tim cac lo hinh tron xuyen suot.
+  //   dui      : lo Ø22.5mm truc doc X tai Y -50.3, Z 3.8  -> hoc servo hong
+  //   ban chan : lo Ø 5.5mm truc doc Z tai X -25.5, Y -71.5 -> truc co chan
+  // Hai cai do xac nhan: HONG quay quanh truc X (dui vung truoc/sau),
+  // CO CHAN quay quanh truc Z (ban chan nghieng) — dung voi Jump dat hai ban
+  // chan 150/30 doi xung va voi ranh servo tren san rong 11.75mm theo X.
+  var HIP_X = 25.4;          // tam ranh servo tren san (|x| 19.5..31.25)
+  var HIP_Y = 47.2;          // de day ban chan cham luoi o y = 0
+  var ANKLE_DY = -29.7;      // truc hong cach day dui 29.7mm (-50.3 den -80)
+  var BODY_Y = 57.5;         // san than cao hon truc hong 10.3mm
+  // Lech can BU THEM vao vi tri ma makeMesh() da dat (no da day chi tiet len
+  // cho bbox cham y=0). Dung .set() la xoa mat phep day do — da vap.
+  var THIGH_ADJ = [25.5, -29.7, -3.8];
+  var FOOT_ADJ  = [25.5, -17.5,  0.0];
+
+  function buildRig() {
+    if (sim.rig) return sim.rig;
+    var rig = { hip: [null, null], ankle: [null, null] };
+    for (var s = 0; s < 2; s++) {
+      var sign = s === 0 ? -1 : 1;
+      var hip = new THREE.Group();
+      hip.position.set(sign * HIP_X, HIP_Y, 0);
+      group.add(hip);
+
+      var th = makeMesh('thigh1', matShell);
+      if (th) {
+        var holder = new THREE.Group();
+        holder.scale.x = sign;                 // chan kia la anh guong
+        th.position.x += THIGH_ADJ[0];
+        th.position.y += THIGH_ADJ[1];
+        th.position.z += THIGH_ADJ[2];
+        holder.add(th); hip.add(holder);
+      }
+
+      var ank = new THREE.Group();
+      ank.position.set(0, ANKLE_DY, 0);
+      hip.add(ank);
+
+      var ft = makeMesh('foot1', matShell);
+      if (ft) {
+        var h2 = new THREE.Group();
+        h2.scale.x = sign;
+        ft.position.x += FOOT_ADJ[0];
+        ft.position.y += FOOT_ADJ[1];
+        ft.position.z += FOOT_ADJ[2];
+        h2.add(ft); ank.add(h2);
+      }
+      rig.hip[s] = hip; rig.ankle[s] = ank;
+    }
+    sim.rig = rig;
+    return rig;
+  }
+
+  // goc servo (0..180, 90 la giua) -> radian lech khoi tu the nghi
+  function servoAngles(tms) {
+    var m = MOVES[sim.move] || MOVES.home;
+    if (m.seq) {
+      var step = Math.floor(tms / m.T) % m.seq.length;
+      var a = m.seq[step], b = m.seq[(step + 1) % m.seq.length];
+      var u = (tms % m.T) / m.T, e = u * u * (3 - 2 * u);   // muot hai dau
+      return [0, 1, 2, 3].map(function (i) { return a[i] + (b[i] - a[i]) * e; });
+    }
+    return [0, 1, 2, 3].map(function (i) {
+      return 90 + m.O[i] + m.A[i] * Math.sin(2 * Math.PI * tms / m.T + m.P[i] * Math.PI / 180);
+    });
+  }
+
+  function animateRig(tms) {
+    var rig = buildRig(), a = servoAngles(tms);
+    for (var s = 0; s < 2; s++) {
+      // hong: truc X, dui vung truoc/sau
+      rig.hip[s].rotation.x = (a[s] - 90) * Math.PI / 180 * (s === 0 ? 1 : -1);
+      // co chan: truc Z, ban chan nghieng
+      rig.ankle[s].rotation.z = (a[2 + s] - 90) * Math.PI / 180;
+    }
+    $('read').textContent = 'servo  ' + a.map(function (v) {
+      return Math.round(v); }).join('°  ') + '°';
+  }
+
+  // ---- kich ban mot luot noi chuyen -------------------------------------
+  function runScript() {
+    var t = 0, S = [];
+    S.push([t, function () { sim.phase = 'nghe'; sim.say = ''; sim.emo = 'neutral';
+                             sim.move = 'home'; }]);
+    t += 2200;  S.push([t, function () { sim.phase = 'nghe'; }]);
+    t += LAT.vad;  S.push([t, function () { sim.phase = 'nghĩ'; }]);
+    t += LAT.stt;  S.push([t, function () { sim.phase = 'nghĩ'; }]);
+    t += LAT.emo;  S.push([t, function () { sim.emo = 'happy'; }]);   // cam xuc TRUOC
+    t += LAT.tts;  S.push([t, function () {
+        sim.phase = 'nói'; sim.say = 'Tớ vui lắm nè! Cậu kể tớ nghe đi.';
+        sim.move = 'swing'; sim.t0 = performance.now(); }]);
+    t += 2600; S.push([t, function () { sim.phase = ''; sim.move = 'home';
+                                        sim.t0 = performance.now(); }]);
+    sim.script = S; sim.scriptAt = performance.now();
+    $('simNote').textContent = 'Đang chạy… mốc thời gian là số ĐO THẬT, không phải ước lượng.';
+  }
+
+  function tickSim() {
+    if (mode !== 'sim') return;
+    var now = performance.now();
+    if (sim.script) {
+      var el = now - sim.scriptAt, done = true;
+      for (var i = 0; i < sim.script.length; i++) {
+        if (el >= sim.script[i][0]) { if (!sim.script[i][2]) { sim.script[i][1]();
+            sim.script[i][2] = 1; } } else done = false;
+      }
+      if (done) { sim.script = null;
+        $('simNote').textContent = 'Xong một lượt. Bấm lại để chạy tiếp.'; }
+      $('simClock').textContent = (el / 1000).toFixed(1) + ' s';
+    }
+    animateRig(now - sim.t0);
+    drawOled();
+  }
+
+  // Rig duoc gan vao `group` nen no con do khi doi che do — phai tat tay,
+  // khong thi chan lo ra o tab "Khay in" va "Uom linh kien".
+  function rigVisible(on) {
+    if (!sim.rig) return;
+    for (var s2 = 0; s2 < 2; s2++) {
+      if (sim.rig.hip[s2]) sim.rig.hip[s2].visible = on;
+    }
+  }
+
+  function showSim() {
+    ['body', 'head'].forEach(function (k) {
+      var x = meshes[k]; if (!x) return;
+      x.visible = true; x.material = matShell;
+      x.position.set(0, x.userData.floor + (k === 'head' ? HEAD_Y : 0) + BODY_Y, 0);
+      x.updateMatrixWorld(true);
+      var bb = new THREE.Box3().setFromObject(x), cc = bb.getCenter(new THREE.Vector3());
+      x.position.x -= cc.x; x.position.z -= cc.z;
+      x.updateMatrixWorld(true);
+    });
+    ['thigh', 'foot', 'thigh1', 'foot1', 'switch', 'bootbtn'].forEach(function (k) {
+      if (meshes[k]) meshes[k].visible = false;
+    });
+    Object.keys(comps).forEach(function (k) { if (comps[k]) comps[k].visible = false; });
+    buildRig();
+    rigVisible(true);
+    sim.t0 = performance.now();
+    var all = new THREE.Box3().setFromObject(group);
+    frame(all, .60); place();
+    $('badge').textContent = 'Giả lập';
+    drawOled();
+  }
+
   function setMode(m) {
     mode = m; focus = null; sel = null;
     press($('mPlate'), m === 'plate'); press($('mFit'), m === 'fit');
-    press($('mPlan'), m === 'plan');
+    press($('mPlan'), m === 'plan'); press($('mSim'), m === 'sim');
+    $('simPanel').hidden = (m !== 'sim');
+    if (m === 'sim') {
+      $('mover').hidden = true; $('shellPick').hidden = true;
+      $('railTitle').textContent = 'Biểu cảm & động tác';
+      $('note').innerHTML = 'Robot ráp xong sẽ chạy như thế này. ' +
+        '<b>Góc servo là công thức thật</b> chép từ <code>otto_movements.cc</code>; ' +
+        'vị trí khớp thì đo từ file STL nên chỉ gần đúng — cái cần nhìn là ' +
+        '<b>chuyển động</b>. Bấm một động tác để xem chân nhảy, bấm một biểu cảm ' +
+        'để xem màn OLED.';
+      buildList(); showSim();
+      return;
+    }
     if (m === 'plan') {
+      rigVisible(false);
       $('mover').hidden = true; $('shellPick').hidden = true;
       $('railTitle').textContent = 'Bố trí';
       $('note').innerHTML = 'Thân và đầu để <b>mờ</b> cho nhìn xuyên. Ba tầng trong thân: ' +
@@ -548,6 +826,7 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
       buildList(); showPlan();
       return;
     }
+    rigVisible(false);
     $('mover').hidden = true;
     $('railTitle').textContent = m === 'plate' ? 'Chi tiết vỏ' : 'Linh kiện';
     $('note').innerHTML = m === 'plate'
@@ -621,6 +900,49 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
       { k:'mic',    vi:'Mic INMP441',  d:[14.0,14.0,11.4], c:0x7d5590, at:'hông trái' },
       { k:'ip5306', vi:'Mạch IP5306',  d:[50.0,25.0,8.0],  c:0x9a6b2f, at:'TRONG ĐẦU — thân hết chỗ' }
     ];
+    if (mode === 'sim') {
+      $('railCount').textContent = EMOS.length + ' + ' + Object.keys(MOVES).length;
+      var mk = function (txt, sub2, on, fn) {
+        var b = document.createElement('button');
+        b.className = 'part'; b.setAttribute('aria-pressed', String(!!on));
+        b.innerHTML = '<span></span><span class="nm">' + txt +
+                      '</span><span class="qty"></span>' +
+                      '<span class="dim">' + sub2 + '</span>';
+        b.addEventListener('click', function () {
+          fn();
+          [].forEach.call(list.querySelectorAll('.part'), function (o) {
+            o.setAttribute('aria-pressed', 'false'); });
+          b.setAttribute('aria-pressed', 'true');
+        });
+        list.appendChild(b);
+        return b;
+      };
+      // KHONG dung class .part o day: no la luoi 3 cot nen chu bi bop vao
+      // cot 12px, xuong doc tung ky tu. Da vap.
+      var hd = function (t) {
+        var d = document.createElement('div');
+        d.style.cssText =
+          'background:var(--sunk);border-bottom:1px solid var(--line);' +
+          'font:500 10.5px/1.3 "Barlow Semi Condensed",sans-serif;' +
+          'letter-spacing:.1em;text-transform:uppercase;color:var(--muted);' +
+          'padding:9px 13px';
+        d.textContent = t; list.appendChild(d);
+      };
+      hd('Động tác — tham số thật của Otto');
+      Object.keys(MOVES).forEach(function (k) {
+        var m = MOVES[k];
+        mk(m.vi, m.seq ? 'chuỗi 2 tư thế · ' + m.T + 'ms'
+                       : 'chu kỳ ' + m.T + 'ms · biên độ ' + m.A.join('/') + '°',
+           k === sim.move,
+           function () { sim.move = k; sim.t0 = performance.now(); });
+      });
+      hd('Biểu cảm — 21 tên, 9 khuôn mặt');
+      EMOS.forEach(function (e) {
+        mk(e[1] + '  ' + e[0], e[3] + ' · file ' + e[2] + '.eaf',
+           e[0] === sim.emo, function () { sim.emo = e[0]; sim.say = e[3]; });
+      });
+      return;
+    }
     var rows = mode === 'plate' ? SHELL : (mode === 'plan' ? PLAN_ROWS : COMP);
     $('railCount').textContent = mode === 'plate' ? '8' : rows.length;
     rows.forEach(function (p) {
@@ -647,7 +969,7 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     paintList();
   }
   function paintList() {
-    if (mode === 'plan') return;
+    if (mode === 'plan' || mode === 'sim') return;
     var rows = mode === 'plate' ? SHELL : COMP;
     rows.forEach(function (p) {
       var el = $('p-' + p.k); if (!el) return;
@@ -705,6 +1027,8 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   $('mPlate').addEventListener('click', function () { setMode('plate'); });
   $('mFit').addEventListener('click', function () { setMode('fit'); });
   $('mPlan').addEventListener('click', function () { setMode('plan'); });
+  $('mSim').addEventListener('click', function () { setMode('sim'); });
+  $('simTalk').addEventListener('click', runScript);
   $('shBody').addEventListener('click', function () { setShell('body'); });
   $('shThigh1').addEventListener('click', function () { setShell('thigh1'); });
   $('shFoot1').addEventListener('click', function () { setShell('foot1'); });
@@ -802,6 +1126,7 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   (function tick() {
     requestAnimationFrame(tick); resize();
     if (spin && !drag) { theta += .0022; place(); }
+    tickSim();
     renderer.render(scene, camera);
   })();
   place();

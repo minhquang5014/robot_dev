@@ -166,6 +166,58 @@ dưới là tràn. Đặt nghiêng mạch cũng không cứu được vì nó d�
 
 Pin không nhét được vào đầu: hốc rộng `56mm`, pin dài `58mm` — thiếu 2mm.
 
+## Chế độ "Giả lập" trong viewer
+
+Xem trước robot ráp xong sẽ chạy thế nào: màn OLED hiện gì, chân nhảy ra sao.
+Mọi con số đều lấy từ mã nguồn thật, không ước lượng.
+
+**Góc servo** dùng đúng công thức dao động của Otto
+(`boards/otto-robot/otto_movements.cc`):
+
+```
+góc = 90 + trim + biên_độ · sin(2π·t/chu_kỳ + pha)
+```
+
+14 động tác với đúng bộ tham số `A / O / phase` chép từ firmware — đi tới, đi
+lùi, quay trái/phải, lắc lư, nhún, kiễng chân, rung hông, xoay dâng, moonwalk,
+crusaito, vỗ cánh, nhảy, về nghỉ.
+
+**Vị trí khớp** đo bằng thuật toán chứ không ướm bằng mắt: voxel hoá từng chi
+tiết rồi tìm các lỗ tròn xuyên suốt.
+
+| chi tiết | lỗ tìm được | trục | tâm |
+|---|---|---|---|
+| đùi | Ø22,5mm (hốc servo hông) | **X** | Y −50,3 · Z 3,8 |
+| bàn chân | Ø5,5mm (trục cổ chân) | **Z** | X −25,5 · Y −71,5 |
+
+Hai lỗ đó xác định luôn hướng quay: **hông quay quanh trục X** (đùi vung
+trước/sau), **cổ chân quay quanh trục Z** (bàn chân nghiêng trái/phải). Khớp
+với `Jump` đặt hai bàn chân `150°/30°` đối xứng, và với rãnh servo trên sàn
+rộng 11,75mm theo X — đúng bề dày thân SG90.
+
+**Màn OLED** vẽ theo `main/display/oled_display.cc`: glyph emoji Noto 30px bên
+trái, chữ bên phải. Không phải mặt hoạt hình — bo `otto-robot` mới có GIF,
+nhưng bo đó dùng LCD 240×240 chứ không phải SSD1306.
+
+> **21 tên biểu cảm nhưng chỉ 9 khuôn mặt.** `emote.json` cho thấy `Happy.eaf`
+> gánh 10 tên: happy, laughing, funny, loving, embarrassed, confident,
+> delicious, silly, **surprised**, **relaxed**. Nghĩa là "ngạc nhiên" và "thư
+> giãn" trông y hệt "vui". Ngoài ra `neutral` ↔ `winking` bị **đổi chỗ cho
+> nhau** trong bảng: gửi `[neutral]` thì robot nháy mắt, gửi `[winking]` thì nó
+> mặt bình thường.
+
+**Nút "Nói thử một lượt"** chạy đúng trình tự có thật, mốc thời gian là trung
+vị đo được ngày 27/09/2026 (xem `server/README.md`): nghe → VAD chốt câu sau
+800ms → STT 757ms → **cảm xúc hiện ở mốc 477ms, trước tiếng nói** → TTS 433ms.
+
+> ⚠️ **Chân sẽ KHÔNG tự nhảy khi cắm máy thật.** Firmware phơi các động tác ra
+> dưới dạng **công cụ MCP** để LLM tự gọi (`otto_controller.cc`, thuộc tính
+> `action`: walk, turn, jump, swing, moonwalk, bend, shake_leg, updown,
+> whirlwind_leg, sit, showcase, home…). Server trong `server/` **chưa có một
+> dòng MCP nào** — nó mới gửi cảm xúc và tiếng nói. Nên robot sẽ nói và đổi mặt
+> nhưng đứng im. Giả lập cho thấy chân nhảy là để biết *sẽ* thế nào sau khi
+> làm cầu MCP.
+
 ## Tên tệp
 
 Không dấu, có gạch nối. Tên gốc là tiếng Trung, đọc được nhưng phải chỉnh
