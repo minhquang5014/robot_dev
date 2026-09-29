@@ -454,7 +454,17 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   }
   cv.addEventListener('pointerup', endDrag);
   cv.addEventListener('pointercancel', endDrag);
-  cv.addEventListener('wheel', function (e) { e.preventDefault(); zoomBy(Math.sign(e.deltaY) * .12); }, { passive:false });
+  // Truoc day dung Math.sign(e.deltaY) nen MOI su kien cuon deu nhay du 12%,
+  // to nho gi cung the. Chuot nha it su kien lon nen khong sao; touchpad nha
+  // hang chuc su kien nho mot luot -> phong vot qua. Dung DO LON that.
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var d = e.deltaY;
+    if (e.deltaMode === 1) d *= 16;          // don vi dong -> pixel
+    else if (e.deltaMode === 2) d *= 400;    // don vi trang -> pixel
+    // 100px (mot nac chuot) ~ 11%. Mot nhip touchpad ~ 3-10px -> 0.3-1%.
+    zoomBy(Math.max(-.22, Math.min(.22, d * .0011)));
+  }, { passive:false });
 
   // ---- vi tri linh kien, nho tren may nay ----
   function loadPos() {
@@ -614,8 +624,14 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   // oled_display.cc: nhan cam xuc ben TRAI la glyph Noto Emoji 30px, chu o
   // ben phai. Khong phai mat hoat hinh — bo otto-robot moi co GIF, nhung bo
   // do dung LCD 240x240 chu khong phai SSD1306.
-  function drawOled() {
+  // Chi ve lai khi co gi doi. Ve moi khung hinh la phi: bo cuc chu + glyph
+  // emoji kha nang, ma noi dung thi vai giay moi doi mot lan.
+  var oledKey = '';
+  function drawOled(force) {
     var c = $('oled'); if (!c) return;
+    var key = sim.emo + '|' + sim.say + '|' + sim.phase;
+    if (!force && key === oledKey) return;
+    oledKey = key;
     var g = c.getContext('2d'), W = c.width, H = c.height;
     g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
     var row = EMOS.filter(function (e) { return e[0] === sim.emo; })[0] || EMOS[0];
@@ -657,26 +673,33 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   // CO CHAN quay quanh truc Z (ban chan nghieng) — dung voi Jump dat hai ban
   // chan 150/30 doi xung va voi ranh servo tren san rong 11.75mm theo X.
   var HIP_X = 25.4;          // tam ranh servo tren san (|x| 19.5..31.25)
-  var HIP_Y = 47.2;          // de day ban chan cham luoi o y = 0
-  var ANKLE_DY = -29.7;      // truc hong cach day dui 29.7mm (-50.3 den -80)
-  var BODY_Y = 57.5;         // san than cao hon truc hong 10.3mm
+  var HIP_Y = 49.0;          // de day ban chan cham luoi o y = 0
+  var ANKLE_DY = -31.5;      // truc co chan cach dinh dui 31.5mm
+  var BODY_Y = 49.0;         // san than ngang dinh dui
   // Lech can BU THEM vao vi tri ma makeMesh() da dat (no da day chi tiet len
   // cho bbox cham y=0). Dung .set() la xoa mat phep day do — da vap.
   //
   // DAU X PHAI DUNG: viewer dung nua PHAI cua tep in doi (thigh1 o X +17..+34,
   // foot1 o X +15..+57). Lan dau minh do nua TRAI roi lay so am -> lech 51mm,
   // chan van tung toe. Kiem bang bbox trong mesh-data.js truoc khi tin.
-  var THIGH_ADJ = [-25.5, -29.7, -3.8];
-  var FOOT_ADJ  = [-25.5, -17.5,  0.0];
+  var THIGH_ADJ = [-25.5, -40.0, 0.0];   // truc hong = lo Ø7.5 thang dung, dinh dui
+  var FOOT_ADJ  = [-25.5, -17.5, 0.0];   // truc co chan = lo Ø5.5 tai Y -71.5
+
+  // Ca con robot nam trong simRoot. Moi khung hinh minh tinh ma tran cua
+  // simRoot sao cho BAN CHAN TRU dung yen va phang tren dat — nho vay than
+  // tu nho len, nghieng, va tien toi dung nhu that, chi tu goc servo ma ra.
+  var simRoot = new THREE.Group();
+  simRoot.matrixAutoUpdate = false;
+  group.add(simRoot);
 
   function buildRig() {
     if (sim.rig) return sim.rig;
-    var rig = { hip: [null, null], ankle: [null, null] };
+    var rig = { hip: [null, null], ankle: [null, null], sole: [null, null] };
     for (var s = 0; s < 2; s++) {
       var sign = s === 0 ? -1 : 1;
       var hip = new THREE.Group();
       hip.position.set(sign * HIP_X, HIP_Y, 0);
-      group.add(hip);
+      simRoot.add(hip);
 
       var th = makeMesh('thigh1', matShell);
       if (th) {
@@ -702,9 +725,90 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
         h2.add(ft); ank.add(h2);
       }
       rig.hip[s] = hip; rig.ankle[s] = ank;
+
+      // Bon goc day ban chan, quy ve he toa do cua khop co chan. Day la cac
+      // diem se cham dat.
+      if (ft) {
+        ank.updateMatrixWorld(true);
+        var bb = new THREE.Box3().setFromObject(ft);
+        var inv = new THREE.Matrix4().copy(ank.matrixWorld).invert();
+        rig.sole[s] = [[bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.min.y, bb.min.z],
+                       [bb.min.x, bb.min.y, bb.max.z], [bb.max.x, bb.min.y, bb.max.z]]
+          .map(function (c) {
+            return new THREE.Vector3(c[0], c[1], c[2]).applyMatrix4(inv);
+          });
+      } else {
+        rig.sole[s] = [new THREE.Vector3(0, 0, 0)];
+      }
     }
     sim.rig = rig;
     return rig;
+  }
+
+  // ---- tiep xuc mat dat --------------------------------------------------
+  // Robot tua len DIEM THAP NHAT trong 8 goc day cua hai ban chan. Moi khung
+  // hinh minh nang ca con robot len cho diem do cham dat, va ghim no lai theo
+  // phuong ngang — chan khong truot thi than phai tien toi. Goc xoay quanh
+  // truc dung cung duoc giu, nho vay "Quay trai/phai" doi huong that.
+  //
+  // KHONG ep ban chan tru phang. Da thu va sai: co chan quay toi 35 do, ep
+  // phang thi than phai nga dung 35 do, nhin nhu sap do. Ban chan that kenh
+  // len mot mep chu khong giu phang; nang theo diem thap nhat cho ra dang
+  // le xe dung nhu Otto that.
+  var gnd = { key: '', x: 0, z: 0, yaw: 0, ready: false,
+              dx: 0, dy: 0, dz: 0, ry: 0, cam: null, sup: 0 };
+  var _v = new THREE.Vector3(), _m = new THREE.Matrix4(), _e = new THREE.Euler();
+
+  function resetGround() { gnd.ready = false; gnd.cam = null; gnd.key = ''; }
+
+  function groundRobot() {
+    var rig = sim.rig; if (!rig || !rig.sole[0]) return;
+
+    // 1) Tinh thuan voi simRoot = dong nhat.
+    simRoot.matrix.identity();
+    simRoot.updateMatrixWorld(true);
+
+    // 2) Tim goc day thap nhat trong ca hai ban chan.
+    var bs = 0, bi = 0, by = Infinity, bx = 0, bz = 0;
+    for (var s = 0; s < 2; s++) {
+      for (var i = 0; i < rig.sole[s].length; i++) {
+        _v.copy(rig.sole[s][i]).applyMatrix4(rig.ankle[s].matrixWorld);
+        if (_v.y < by) { by = _v.y; bx = _v.x; bz = _v.z; bs = s; bi = i; }
+      }
+    }
+    // Huong (quanh truc dung) cua ban chan dang chong.
+    _e.setFromRotationMatrix(rig.ankle[bs].matrixWorld, 'YXZ');
+    var footYaw = _e.y;
+
+    // 3) Doi diem chong -> neo lai tu vi tri hien tai, khong bi giat.
+    var key = bs + ':' + bi;
+    if (key !== gnd.key || !gnd.ready) {
+      var cy = Math.cos(gnd.ry), sy = Math.sin(gnd.ry);
+      gnd.x = gnd.dx + bx * cy + bz * sy;
+      gnd.z = gnd.dz - bx * sy + bz * cy;
+      gnd.yaw = gnd.ry + footYaw;
+      gnd.key = key; gnd.ready = true; gnd.sup = bs;
+    }
+
+    // 4) Xoay quanh truc dung sao cho huong ban chan chong khong doi.
+    gnd.ry = gnd.yaw - footYaw;
+    var c = Math.cos(gnd.ry), n = Math.sin(gnd.ry);
+    var rx = bx * c + bz * n, rz = -bx * n + bz * c;   // diem chong sau khi xoay
+    gnd.dx = gnd.x - rx;
+    gnd.dz = gnd.z - rz;
+    gnd.dy = -by;                                       // ha cham dat
+
+    _m.makeRotationY(gnd.ry);
+    _m.setPosition(gnd.dx, gnd.dy, gnd.dz);
+    simRoot.matrix.copy(_m);
+    simRoot.updateMatrixWorld(true);
+
+    // 5) Khung nhin bam theo, khong thi robot di ra khoi man hinh.
+    if (!gnd.cam) gnd.cam = { x: gnd.dx, z: gnd.dz };
+    gnd.cam.x += (gnd.dx - gnd.cam.x) * .05;
+    gnd.cam.z += (gnd.dz - gnd.cam.z) * .05;
+    target.x = gnd.cam.x; target.z = gnd.cam.z;
+    place();
   }
 
   // goc servo (0..180, 90 la giua) -> radian lech khoi tu the nghi
@@ -724,13 +828,20 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   function animateRig(tms) {
     var rig = buildRig(), a = servoAngles(tms);
     for (var s = 0; s < 2; s++) {
-      // hong: truc X, dui vung truoc/sau
-      rig.hip[s].rotation.x = (a[s] - 90) * Math.PI / 180 * (s === 0 ? 1 : -1);
+      // Hong quay quanh truc DUNG (Y): chan xoay trai/phai, khong hat len xuong.
+      // May do tim duoc HAI lo tren dui — Ø22.5 truc X va Ø7.5 truc Y. Lan dau
+      // minh lay nham cai Ø22.5 lam truc quay, nhung do chi la CUA LAP servo
+      // vao hong dui; truc that la lo Ø7.5 thang dung, noi can servo cam tu
+      // san xuong. Khop voi ranh servo tren san: servo dung trong ranh, truc
+      // chia xuong xuyen qua san.
+      rig.hip[s].rotation.y = (a[s] - 90) * Math.PI / 180 * (s === 0 ? 1 : -1);
       // co chan: truc Z, ban chan nghieng
       rig.ankle[s].rotation.z = (a[2 + s] - 90) * Math.PI / 180;
     }
+    groundRobot();
     $('read').textContent = 'servo  ' + a.map(function (v) {
-      return Math.round(v); }).join('°  ') + '°';
+      return Math.round(v); }).join('°  ') + '°'
+      + (gnd.ready ? '   chân trụ: ' + (gnd.sup === 0 ? 'trái' : 'phải') : '');
   }
 
   // ---- kich ban mot luot noi chuyen -------------------------------------
@@ -744,9 +855,9 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     t += LAT.emo;  S.push([t, function () { sim.emo = 'happy'; }]);   // cam xuc TRUOC
     t += LAT.tts;  S.push([t, function () {
         sim.phase = 'nói'; sim.say = 'Tớ vui lắm nè! Cậu kể tớ nghe đi.';
-        sim.move = 'swing'; sim.t0 = performance.now(); }]);
+        sim.move = 'swing'; sim.t0 = performance.now(); resetGround(); }]);
     t += 2600; S.push([t, function () { sim.phase = ''; sim.move = 'home';
-                                        sim.t0 = performance.now(); }]);
+                                        sim.t0 = performance.now(); resetGround(); }]);
     sim.script = S; sim.scriptAt = performance.now();
     $('simNote').textContent = 'Đang chạy… mốc thời gian là số ĐO THẬT, không phải ước lượng.';
   }
@@ -771,6 +882,15 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   // Rig duoc gan vao `group` nen no con do khi doi che do — phai tat tay,
   // khong thi chan lo ra o tab "Khay in" va "Uom linh kien".
   function rigVisible(on) {
+    simRoot.visible = on;
+    if (!on) {
+      // Tra than va dau ve `group`, va go ma tran tiep xuc mat dat — khong
+      // thi cac che do khac nhan duoc mot con robot nghieng ngua.
+      simRoot.matrix.identity(); simRoot.updateMatrixWorld(true);
+      ['body', 'head'].forEach(function (k) {
+        if (meshes[k] && meshes[k].parent === simRoot) group.add(meshes[k]);
+      });
+    }
     if (!sim.rig) return;
     for (var s2 = 0; s2 < 2; s2++) {
       if (sim.rig.hip[s2]) sim.rig.hip[s2].visible = on;
@@ -779,10 +899,19 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
 
   // Cho bai kiem tu dong dat goc nhin chinh dien.
   window.__front = function () { theta = 0; phi = Math.PI / 2; place(); };
+  window.__top = function () { theta = 0; phi = 0.42; place(); };
+  window.__view = function (t, f, r) {
+    theta = t; phi = f; if (r) radius = r; place();
+  };
+  window.__radius = function () { return radius; };
+  window.__setRadius = function (r) { radius = r; place(); };
 
   function showSim() {
+    simRoot.visible = true;
+    simRoot.matrix.identity(); simRoot.updateMatrixWorld(true);
     ['body', 'head'].forEach(function (k) {
       var x = meshes[k]; if (!x) return;
+      simRoot.add(x);                 // ca than va dau di theo chan
       x.visible = true; x.material = matShell;
       x.position.set(0, x.userData.floor + (k === 'head' ? HEAD_Y : 0) + BODY_Y, 0);
       x.updateMatrixWorld(true);
@@ -796,11 +925,13 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     Object.keys(comps).forEach(function (k) { if (comps[k]) comps[k].visible = false; });
     buildRig();
     rigVisible(true);
+    resetGround();
     sim.t0 = performance.now();
-    var all = new THREE.Box3().setFromObject(group);
+    animateRig(0);
+    var all = new THREE.Box3().setFromObject(simRoot);
     frame(all, .60); place();
     $('badge').textContent = 'Giả lập';
-    drawOled();
+    drawOled(true);
   }
 
   function setMode(m) {
@@ -815,9 +946,10 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
         '<b>Góc servo là công thức thật</b> chép từ <code>otto_movements.cc</code>; ' +
         'vị trí khớp thì đo từ file STL nên chỉ gần đúng — cái cần nhìn là ' +
         '<b>chuyển động</b>. Bấm một động tác để xem chân nhảy, bấm một biểu cảm ' +
-        'để xem màn OLED. Lúc chân vung mạnh, bàn chân sẽ lún xuống dưới lưới — ' +
-        'rig này không mô phỏng tiếp xúc mặt đất, robot thật sẽ nghiêng người lên ' +
-        'thay vì lún.';
+        'để xem màn OLED. Robot <b>đi thật trên mặt đất</b>: mỗi khung hình ' +
+        'chọn bàn chân thấp nhất làm chân trụ, ghim nó phẳng xuống đất rồi tính ' +
+        'ngược lên ra tư thế thân — nên thân tự nhô lên, nghiêng và tiến tới, ' +
+        'hoàn toàn từ góc servo mà ra.';
       buildList(); showSim();
       return;
     }
@@ -943,7 +1075,7 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
         mk(m.vi, m.seq ? 'chuỗi 2 tư thế · ' + m.T + 'ms'
                        : 'chu kỳ ' + m.T + 'ms · biên độ ' + m.A.join('/') + '°',
            k === sim.move,
-           function () { sim.move = k; sim.t0 = performance.now(); });
+           function () { sim.move = k; sim.t0 = performance.now(); resetGround(); });
       });
       hd('Biểu cảm — 21 tên, 9 khuôn mặt');
       EMOS.forEach(function (e) {
