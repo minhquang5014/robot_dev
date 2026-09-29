@@ -187,13 +187,20 @@ tiết rồi tìm các lỗ tròn xuyên suốt.
 
 | chi tiết | lỗ tìm được | trục | tâm |
 |---|---|---|---|
-| đùi | Ø22,5mm (hốc servo hông) | **X** | Y −50,3 · Z 3,8 |
-| bàn chân | Ø5,5mm (trục cổ chân) | **Z** | X −25,5 · Y −71,5 |
+| đùi | Ø7,5mm — **trục hông** | **Y** | X −25,5 · Z 0 |
+| đùi | Ø22,5mm — cửa lắp servo vào hông đùi | X | Y −50,3 · Z 3,8 |
+| bàn chân | Ø5,5mm — **trục cổ chân** | **Z** | X −25,5 · Y −71,5 |
 
-Hai lỗ đó xác định luôn hướng quay: **hông quay quanh trục X** (đùi vung
-trước/sau), **cổ chân quay quanh trục Z** (bàn chân nghiêng trái/phải). Khớp
-với `Jump` đặt hai bàn chân `150°/30°` đối xứng, và với rãnh servo trên sàn
-rộng 11,75mm theo X — đúng bề dày thân SG90.
+**Hông quay quanh trục ĐỨNG (Y)** — chân xoay trái/phải, không hất lên xuống.
+Servo đứng trong rãnh sàn, cần chĩa xuống xuyên qua sàn cắm vào lỗ Ø7,5 thẳng
+đứng ở đỉnh đùi. **Cổ chân quay quanh trục Z** — bàn chân nghiêng trái/phải,
+khớp với `Jump` đặt hai bàn chân `150°/30°` đối xứng.
+
+> ⚠️ Đùi có **hai** lỗ và tôi chọn nhầm lần đầu: lấy lỗ Ø22,5 trục X làm trục
+> quay nên hông hất chân lên xuống như đang đạp xe. Lỗ đó chỉ là **cửa để lắp
+> servo vào hông đùi**. Lỗ Ø7,5 thẳng đứng mới là trục. Đường kính lớn hơn
+> không có nghĩa là quan trọng hơn — phải xét lỗ nào ăn khớp với cách servo
+> được gá.
 
 > ⚠️ **Nhớ kiểm dấu X.** Tệp in đôi chứa hai bản; viewer dùng nửa **PHẢI**
 > (`thigh1` ở X `+17..+34`, `foot1` ở X `+15..+57`) trong khi đo bằng script
