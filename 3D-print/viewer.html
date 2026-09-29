@@ -662,8 +662,12 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
   var BODY_Y = 57.5;         // san than cao hon truc hong 10.3mm
   // Lech can BU THEM vao vi tri ma makeMesh() da dat (no da day chi tiet len
   // cho bbox cham y=0). Dung .set() la xoa mat phep day do — da vap.
-  var THIGH_ADJ = [25.5, -29.7, -3.8];
-  var FOOT_ADJ  = [25.5, -17.5,  0.0];
+  //
+  // DAU X PHAI DUNG: viewer dung nua PHAI cua tep in doi (thigh1 o X +17..+34,
+  // foot1 o X +15..+57). Lan dau minh do nua TRAI roi lay so am -> lech 51mm,
+  // chan van tung toe. Kiem bang bbox trong mesh-data.js truoc khi tin.
+  var THIGH_ADJ = [-25.5, -29.7, -3.8];
+  var FOOT_ADJ  = [-25.5, -17.5,  0.0];
 
   function buildRig() {
     if (sim.rig) return sim.rig;
@@ -773,6 +777,9 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     }
   }
 
+  // Cho bai kiem tu dong dat goc nhin chinh dien.
+  window.__front = function () { theta = 0; phi = Math.PI / 2; place(); };
+
   function showSim() {
     ['body', 'head'].forEach(function (k) {
       var x = meshes[k]; if (!x) return;
@@ -808,7 +815,9 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
         '<b>Góc servo là công thức thật</b> chép từ <code>otto_movements.cc</code>; ' +
         'vị trí khớp thì đo từ file STL nên chỉ gần đúng — cái cần nhìn là ' +
         '<b>chuyển động</b>. Bấm một động tác để xem chân nhảy, bấm một biểu cảm ' +
-        'để xem màn OLED.';
+        'để xem màn OLED. Lúc chân vung mạnh, bàn chân sẽ lún xuống dưới lưới — ' +
+        'rig này không mô phỏng tiếp xúc mặt đất, robot thật sẽ nghiêng người lên ' +
+        'thay vì lún.';
       buildList(); showSim();
       return;
     }

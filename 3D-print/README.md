@@ -195,6 +195,15 @@ trước/sau), **cổ chân quay quanh trục Z** (bàn chân nghiêng trái/ph�
 với `Jump` đặt hai bàn chân `150°/30°` đối xứng, và với rãnh servo trên sàn
 rộng 11,75mm theo X — đúng bề dày thân SG90.
 
+> ⚠️ **Nhớ kiểm dấu X.** Tệp in đôi chứa hai bản; viewer dùng nửa **PHẢI**
+> (`thigh1` ở X `+17..+34`, `foot1` ở X `+15..+57`) trong khi đo bằng script
+> lại lấy nửa **TRÁI**. Lấy nhầm dấu là lệch 51mm — chân văng tung toé quanh
+> thân. Đối chiếu `lo`/`span` trong `mesh-data.js` trước khi tin số đo.
+
+> Rig này là động học thuận thuần tuý, **không mô phỏng tiếp xúc mặt đất**.
+> Lúc hông vung hết 30°, bàn chân sẽ lún xuống dưới lưới; robot thật thì
+> nghiêng người lên thay vì lún.
+
 **Màn OLED** vẽ theo `main/display/oled_display.cc`: glyph emoji Noto 30px bên
 trái, chữ bên phải. Không phải mặt hoạt hình — bo `otto-robot` mới có GIF,
 nhưng bo đó dùng LCD 240×240 chứ không phải SSD1306.
