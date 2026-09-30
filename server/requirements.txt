@@ -7,3 +7,11 @@ python-dotenv>=1.0
 # Windows co wheel san, khong phai build gi.
 sounddevice>=0.4
 numpy>=1.24
+
+# Codec Opus hai chieu voi thiet bi. PyAV keo theo ffmpeg co san libopus va
+# co wheel Windows — khong phai tu cai libopus roi chi duong dan DLL.
+av>=12.0
+
+# Phat hien nguoi noi dut cau. Che do `auto` cua firmware gui audio lien tuc,
+# server phai tu quyet dinh luc nao het cau.
+webrtcvad>=2.0

@@ -1,8 +1,14 @@
 """
 Server noi dung giao thuc xiaozhi, de ESP32 goi vao thay cho api.tenclass.net.
 
-MOC 0: chi bat tay va ghi log. Chua noi AI. Muc dich la chung minh ESP32 ket
-noi duoc, va thu lai goi Opus that de lam buoc giai ma sau nay.
+Mot luot tron ven: thiet bi gui Opus -> VAD thay nguoi noi dut cau -> STT ->
+LLM -> TTS -> ma hoa Opus -> gui nguoc xuong loa.
+
+Cam xuc di TRUOC tieng noi. `pipeline.run_turn_stream` goi `on_emotion` ngay
+khi bat duoc tag o dau cau LLM (do duoc ~477ms, som hon tieng noi nua giay),
+server day luon `{"type":"llm","emotion":...}` xuong de mat OLED doi ngay.
+Khong cai nay thi robot dung im vai giay roi moi phan ung — bi che la "giat
+lag" du tong do tre y het.
 
 Hai endpoint tren cung mot cong:
     POST/GET /xiaozhi/ota/   firmware hoi khi khoi dong -> tra ve dia chi WebSocket
@@ -26,6 +32,7 @@ may cong ty — do la di vong tuong lua cua ho.
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -33,7 +40,13 @@ import struct
 import time
 import uuid
 
+import numpy as np
 from aiohttp import WSMsgType, web
+
+from dotenv import load_dotenv
+
+import audio
+import pipeline
 
 log = logging.getLogger("xz")
 
@@ -80,47 +93,171 @@ async def handle_ota(request: web.Request) -> web.Response:
     })
 
 
-class Session:
-    """Mot ket noi WebSocket. Dem goi Opus va luu lai theo tung luot nghe."""
+DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
 
-    def __init__(self, device_id: str):
+
+class Session:
+    """Mot ket noi WebSocket: gom audio nguoi noi, chay pipeline, phat tra loi."""
+
+    def __init__(self, device_id: str, ws: web.WebSocketResponse):
         self.id = str(uuid.uuid4())
         self.device_id = device_id
+        self.ws = ws
+        self.mode = "auto"
         self.listen_started = None
         self.frames = 0
         self.bytes = 0
         self.dump = None
 
+        self.dec = audio.OpusDecoder()
+        self.det = audio.SpeechDetector()
+        self.pcm = []                 # cac manh PCM cua luot dang nghe
+        self.collecting = False
+        self.history = []             # ngu canh hoi thoai, giu trong ket noi
+        self.task = None              # tac vu tra loi dang chay
+        self.turn = 0
+
+    # ---------------------------------------------------------- nghe
     def start_listen(self, mode: str):
         self.stop_listen()
+        self.mode = mode or "auto"
         self.listen_started = time.monotonic()
         self.frames = 0
         self.bytes = 0
-        os.makedirs(OUT_DIR, exist_ok=True)
-        path = os.path.join(OUT_DIR, time.strftime("%H%M%S") + f"_{mode}.opuspkt")
-        # Moi goi: 2 byte do dai (little-endian) + payload Opus. De buoc sau doc
-        # lai tung goi ma giai ma, khong phai doan ranh gioi goi.
-        self.dump = open(path, "wb")
-        log.info("  listen START mode=%s -> luu goi Opus vao %s", mode, os.path.relpath(path, HERE))
+        self.pcm = []
+        self.det.reset()
+        self.collecting = True
+        if DUMP_OPUS:
+            os.makedirs(OUT_DIR, exist_ok=True)
+            path = os.path.join(OUT_DIR, time.strftime("%H%M%S") + f"_{mode}.opuspkt")
+            # Moi goi: 2 byte do dai (little-endian) + payload Opus.
+            self.dump = open(path, "wb")
+        log.info("  listen START mode=%s", mode)
 
-    def on_audio(self, payload: bytes):
+    def on_audio(self, payload: bytes) -> bool:
+        """True = nguoi noi vua dut cau, den luot server tra loi."""
         self.frames += 1
         self.bytes += len(payload)
         if self.dump:
             self.dump.write(struct.pack("<H", len(payload)) + payload)
-        if self.frames == 1:
-            log.info("  goi Opus dau tien: %d byte", len(payload))
+        if not self.collecting:
+            return False
+        pcm = self.dec.decode(payload)
+        if not len(pcm):
+            return False
+        self.pcm.append(pcm)
+        # Che do manual: nguoi dung nha nut moi dung, khong tu doan.
+        if self.mode == "manual":
+            return False
+        return self.det.feed(pcm)
+
+    def take_pcm(self):
+        pcm = np.concatenate(self.pcm) if self.pcm else np.zeros(0, np.int16)
+        self.pcm = []
+        self.collecting = False
+        return pcm
 
     def stop_listen(self, reason: str = ""):
-        if self.dump is None:
+        self.collecting = False
+        if self.dump is not None:
+            self.dump.close()
+            self.dump = None
+        if self.listen_started is None:
             return
         secs = time.monotonic() - self.listen_started
-        self.dump.close()
-        self.dump = None
+        self.listen_started = None
         # Khung 60 ms: so goi x 0.06 phai xap xi thoi gian thuc. Lech nhieu
         # nghia la rot goi hoac khung khac 60 ms.
         log.info("  listen STOP%s: %d goi, %d byte, %.1f s thuc te, %.1f s theo so goi x 60ms",
                  f" ({reason})" if reason else "", self.frames, self.bytes, secs, self.frames * 0.06)
+
+    async def abort(self, reason: str = ""):
+        """Nguoi dung cat loi: huy tac vu tra loi dang chay."""
+        t = self.task
+        if t and not t.done():
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
+            log.info("  da huy luot tra loi (%s)", reason)
+        self.task = None
+
+
+async def respond(sess: Session, pcm: np.ndarray):
+    """Mot luot tra loi tron ven. Chay trong task rieng de abort cat duoc."""
+    ws = sess.ws
+    sess.turn += 1
+    t0 = time.monotonic()
+    secs = len(pcm) / audio.SAMPLE_RATE
+    log.info("  -> nghe duoc %.1f s tieng, bat dau xu ly", secs)
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    stem = os.path.join(OUT_DIR, f"{time.strftime('%H%M%S')}_turn{sess.turn}")
+    # Ogg chu khong phai WAV: 8 KB thay vi 118 KB, STT tu 1324 xuong 377 ms.
+    src = audio.write_ogg(pcm, stem + ".ogg")
+    if DUMP_OPUS:
+        audio.write_wav(pcm, stem + ".wav")     # de nghe lai khi soi loi
+
+    turn = pipeline.Turn()
+    enc = audio.OpusEncoder()
+    pacer = audio.Pacer()
+    started = False
+    carry = b""          # byte le con du giua hai chunk HTTP
+
+    async def on_emotion(name):
+        # Day cam xuc xuong TRUOC khi co tieng. Day la ca ly do ham nay ton tai.
+        await ws.send_json({"type": "llm", "text": "", "emotion": name})
+        log.info("  >> llm emotion=%s  (%.0f ms)", name, (time.monotonic()-t0)*1000)
+
+    async def send_pkts(pkts):
+        for p in pkts:
+            await pacer.wait()
+            await ws.send_bytes(p)
+
+    try:
+        gen = pipeline.run_turn_stream(turn, audio_path=src, history=sess.history,
+                                       on_emotion=on_emotion, pcm=True)
+        async with contextlib.aclosing(gen):
+            async for chunk in gen:
+                if not started:
+                    started = True
+                    await ws.send_json({"type": "stt", "text": turn.transcript})
+                    await ws.send_json({"type": "tts", "state": "start"})
+                    await ws.send_json({"type": "tts", "state": "sentence_start",
+                                        "text": turn.reply})
+                    log.info("  >> stt=%r", turn.transcript)
+                    log.info("  >> tra loi [%s] %r", turn.emotion, turn.reply)
+                # TTS tra PCM 16 kHz (pcm=True) -> ma hoa thang sang Opus.
+                #
+                # Chunk HTTP KHONG dam bao chan byte: mot mau int16 co the bi
+                # cat doi giua hai chunk. Gap that — 3/5 luot chet voi
+                # "buffer size must be a multiple of element size". Giu lai
+                # byte le de ghep vao dau chunk sau.
+                buf = carry + chunk
+                if len(buf) % 2:
+                    carry, buf = buf[-1:], buf[:-1]
+                else:
+                    carry = b""
+                if not buf:
+                    continue
+                samples = np.frombuffer(buf, dtype=np.int16)
+                await send_pkts(enc.encode(samples))
+            await send_pkts(enc.flush())
+    except asyncio.CancelledError:
+        with contextlib.suppress(Exception):
+            await ws.send_json({"type": "tts", "state": "stop"})
+        raise
+    except Exception as e:
+        log.error("  loi khi tra loi: %s: %s", type(e).__name__, e)
+        with contextlib.suppress(Exception):
+            if started:
+                await ws.send_json({"type": "tts", "state": "stop"})
+        return
+
+    await ws.send_json({"type": "tts", "state": "stop"})
+    sess.history = turn.history[-12:]      # giu 6 luot gan nhat
+    log.info("  luot xong: STT %d | LLM %d | TTS %d ms | tieng dau %d ms | tong %.0f ms",
+             turn.ms_stt, turn.ms_llm, turn.ms_tts, turn.ms_first_audio,
+             (time.monotonic()-t0)*1000)
 
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
@@ -128,7 +265,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
 
-    session = Session(h.get("Device-Id", "?"))
+    session = Session(h.get("Device-Id", "?"), ws)
     log.info("WS MO | Device-Id=%s | Client-Id=%s | Protocol-Version=%s | token=%s",
              h.get("Device-Id"), h.get("Client-Id"), h.get("Protocol-Version"),
              "co" if h.get("Authorization") else "khong")
@@ -136,7 +273,18 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     try:
         async for msg in ws:
             if msg.type == WSMsgType.BINARY:
-                session.on_audio(msg.data)
+                if session.on_audio(msg.data) and session.task is None:
+                    # VAD bao nguoi noi dut cau. Chot audio roi tra loi trong
+                    # task rieng de vong lap nay con nhan duoc `abort`.
+                    session.stop_listen("VAD thay dut cau")
+                    pcm = session.take_pcm()
+                    session.task = asyncio.create_task(respond(session, pcm))
+
+                    def _done(t, _s=session):
+                        _s.task = None
+                        if not t.cancelled() and t.exception():
+                            log.error("  task tra loi chet: %r", t.exception())
+                    session.task.add_done_callback(_done)
                 continue
             if msg.type != WSMsgType.TEXT:
                 continue
@@ -166,15 +314,26 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                 if state == "start":
                     session.start_listen(data.get("mode", "?"))
                 elif state == "stop":
-                    session.stop_listen()
+                    session.stop_listen("thiet bi bao stop")
+                    pcm = session.take_pcm()
+                    if len(pcm) and session.task is None:
+                        session.task = asyncio.create_task(respond(session, pcm))
+
+                        def _done(t, _s=session):
+                            _s.task = None
+                            if not t.cancelled() and t.exception():
+                                log.error("  task tra loi chet: %r", t.exception())
+                        session.task.add_done_callback(_done)
                 else:
                     log.info("  << listen %s", json.dumps(data, ensure_ascii=False))
             elif kind == "abort":
                 log.info("  << abort %s", data.get("reason", ""))
+                await session.abort(data.get("reason", ""))
             else:
                 log.info("  << %s", json.dumps(data, ensure_ascii=False)[:200])
     finally:
         session.stop_listen("mat ket noi")
+        await session.abort("mat ket noi")
         log.info("WS DONG | Device-Id=%s", session.device_id)
     return ws
 
@@ -187,7 +346,8 @@ def make_app() -> web.Application:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Server giao thuc xiaozhi (Moc 0)")
+    load_dotenv(os.path.join(HERE, ".env"))
+    p = argparse.ArgumentParser(description="Server giao thuc xiaozhi")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--host", default="127.0.0.1",
                    help="127.0.0.1 khi thu tren may ca nhan hoac sau reverse proxy; "
@@ -204,6 +364,10 @@ def main():
     )
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
     log.info("Server nghe tai http://%s:%d", args.host, args.port)
+    log.info("TTS=%s  LLM=%s  giong=%s",
+             os.environ.get("TTS_PROVIDER", "xai"),
+             os.environ.get("LLM_MODEL", "qwen/qwen3.8-27b"),
+             os.environ.get("XAI_TTS_VOICE", "eve"))
     web.run_app(make_app(), host=args.host, port=args.port, print=None)
 
 

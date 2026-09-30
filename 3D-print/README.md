@@ -64,13 +64,55 @@ Bên in 3D báo chỗ này quá mỏng. Khung mới trùm hết:
 > giác quanh lỗ thành màng mỏng, đẩy tỉ lệ vách dưới 1,0mm từ 6,1% lên 22,0%.
 > Sửa hình học lưới thì **cộng thêm khối luôn an toàn hơn dời đỉnh**.
 
-**2. Bỏ giàn đỡ tay: thân `109` → `69mm`**
+**2. Rãnh servo trên sàn: giữ nguyên `11,75mm`**
+
+Đã từng nới lên `13,00mm` rồi **bỏ**. Đo ở lưới 0,25mm:
+
+| | Servo SG90 | Rãnh gốc |
+|---|---|---|
+| Dài (cả tai bắt vít) | 32,2mm | 34,0mm ✅ |
+| **Rộng** | 12,2mm | **11,75mm** |
+
+Bề rộng hụt 0,45mm so với số liệu tra cứu. Nhưng đây là thiết kế Otto vốn dành
+cho SG90 và đã có vô số người in chạy được, nên nhiều khả năng nó cố ý lắp
+chật. Nếu chật thật thì gọt bằng dao dễ hơn in lại cả thân nhiều.
+
+Cách nới cũ là dời đỉnh thành rãnh phía trong vào 1,25mm — không dùng được vì
+thành phía ngoài chỉ cách vách thân ~0,3mm nên không đẩy ra được, mà dời phía
+trong thì các đỉnh từ `|x| 20,3` trở ra nằm ngoài vùng chọn vẫn đứng yên, kéo
+tam giác nối giữa thành màng. Lại đúng cái lỗi "dời đỉnh làm mỏng vách hàng
+xóm" đã gặp ở cửa sổ OLED.
+
+**3. Bỏ giàn đỡ tay: thân `109` → `69mm`**
 
 Thân thật chỉ rộng 69mm (`|x| ≤ 34,5`); toàn bộ phần từ 36 đến 54,5mm là giàn
 đỡ cánh tay. Cắt phẳng tại `|x| = 34,6`, vá mặt cắt bằng Delaunay.
 
-Chất lượng lưới sau khi sửa: **207 cạnh hở trên 111.502 tam giác (0,19%)** —
-máy cắt lớp tự vá. Bản gốc kín tuyệt đối (0 cạnh hở, 85 cạnh chồng).
+## Kiểm trước khi gửi đi in
+
+```
+tệp              tam giác  cạnh hở  suy biến  phi-mf   khối rời
+────────────────────────────────────────────────────────────────
+vo-than.stl        111.550      32       122      69      1
+vo-dau.stl         103.634       0         0       0      1
+vo-dui.stl         121.794       0         0       0      2
+vo-ban-chan.stl     43.240       0         0       0      2
+vo-cong-tac.stl     10.812       0         0       0      1
+vo-nut-boot.stl     10.748       0         0       0      1
+```
+
+**`vo-dui.stl` và `vo-ban-chan.stl` mỗi tệp đã chứa sẵn 2 bản.** In một lần
+mỗi tệp là đủ cả đôi; đặt "2 cái" sẽ ra 4 cái.
+
+`vo-than.stl` báo 32 cạnh hở nhưng **không thủng thật**: bắn 4.000 tia xuyên
+ngang, không tia nào cắt lẻ lần. Đó là các đỉnh tách ở mức dưới micron tại mặt
+cắt giàn tay — hàn lại ở dung sai `0,01mm` thì còn 1, ở `0,1mm` thì còn 0. 69
+cạnh phi-manifold là chỗ khung cửa sổ cộng thêm chồng lên vách cũ, đúng như
+mong đợi khi hợp khối bằng cách ghép tam giác.
+
+Còn **một vùng 7mm² dày 0,40mm** ở `x −24,4..−20,4`, `z −32,4..−31,2`. Chỗ này
+**có sẵn trong bản gốc**, không phải do sửa; bên in xem bản trước cũng không
+nhắc tới nó. Rộng đúng một đường đùn của vòi 0,4mm.
 
 ## Khoang trong thân — số đo để bố trí linh kiện
 
@@ -88,6 +130,109 @@ dụng dài 75–77mm, trong khi khoang rộng nhất chỉ 65mm. Thử ở mọ
 
 Bốn trụ `4 × 4mm` cao `4mm`, cách nhau `22 × 22mm` ở giữa sàn là **vấu bắt
 loa**; mấy chấm tròn quanh đó là lưới thoát âm. Đừng đặt gì đè lên.
+
+Khoang trong **đầu** (`vo-dau.stl`), đo cùng cách:
+
+```
+hốc rỗng lớn nhất        56 (ngang) × 16 (cao) × 58 (sâu) mm  =  52 cm³
+```
+
+## Bố trí với pin 10 × 40 × 58mm
+
+Cục pin này dài `58mm`, gần bằng cả chiều sâu khoang, nên nó chiếm trọn một
+tầng. Bộ giải xếp hình chạy trên lưới voxel 1mm, khe hở 1mm quanh mỗi món:
+
+```
+tầng      Y (mm)      món
+────────────────────────────────────────────────────────────
+sàn        3 – 10     loa 25×15×5, úp lên lưới thoát âm
+giữa      10 – 22     PIN 58×10×40 nằm ngang, đè lên loa
+                      mic INMP441 nhét cạnh pin, Z 10.5..26.5
+trên      22 – 37     ESP32 nằm ngang, sát vách sau
+          22 – 42     khuếch đại dựng đứng, giữa thân
+cửa sổ    11 – 41     OLED áp sau khung
+────────────────────────────────────────────────────────────
+trong đầu              mạch IP5306 50×25×8 nằm ngang
+```
+
+**Thứ tự xếp quan trọng.** Xếp pin sau cùng thì không hướng nào lọt; xếp pin
+trước thì vừa. Lý do là mặt bằng `58 × 40mm` của nó cần một tầng liền mạch, mà
+ESP32 với IP5306 xếp trước sẽ cắt khoang thành những lát mỏng vô dụng.
+
+**IP5306 phải dời lên đầu.** Trần khoang thân chỉ cao `40mm` tính từ sàn, mà
+pin `12mm` + ESP32 `15mm` + IP5306 `10mm` đã là `37mm` — cộng thêm `7mm` loa ở
+dưới là tràn. Đặt nghiêng mạch cũng không cứu được vì nó dài `50mm`. Hốc đầu
+`56 × 16 × 58mm` thì chứa nó thoải mái, còn thừa chỗ đi dây xuống thân.
+
+Pin không nhét được vào đầu: hốc rộng `56mm`, pin dài `58mm` — thiếu 2mm.
+
+## Chế độ "Giả lập" trong viewer
+
+Xem trước robot ráp xong sẽ chạy thế nào: màn OLED hiện gì, chân nhảy ra sao.
+Mọi con số đều lấy từ mã nguồn thật, không ước lượng.
+
+**Góc servo** dùng đúng công thức dao động của Otto
+(`boards/otto-robot/otto_movements.cc`):
+
+```
+góc = 90 + trim + biên_độ · sin(2π·t/chu_kỳ + pha)
+```
+
+14 động tác với đúng bộ tham số `A / O / phase` chép từ firmware — đi tới, đi
+lùi, quay trái/phải, lắc lư, nhún, kiễng chân, rung hông, xoay dâng, moonwalk,
+crusaito, vỗ cánh, nhảy, về nghỉ.
+
+**Vị trí khớp** đo bằng thuật toán chứ không ướm bằng mắt: voxel hoá từng chi
+tiết rồi tìm các lỗ tròn xuyên suốt.
+
+| chi tiết | lỗ tìm được | trục | tâm |
+|---|---|---|---|
+| đùi | Ø7,5mm — **trục hông** | **Y** | X −25,5 · Z 0 |
+| đùi | Ø22,5mm — cửa lắp servo vào hông đùi | X | Y −50,3 · Z 3,8 |
+| bàn chân | Ø5,5mm — **trục cổ chân** | **Z** | X −25,5 · Y −71,5 |
+
+**Hông quay quanh trục ĐỨNG (Y)** — chân xoay trái/phải, không hất lên xuống.
+Servo đứng trong rãnh sàn, cần chĩa xuống xuyên qua sàn cắm vào lỗ Ø7,5 thẳng
+đứng ở đỉnh đùi. **Cổ chân quay quanh trục Z** — bàn chân nghiêng trái/phải,
+khớp với `Jump` đặt hai bàn chân `150°/30°` đối xứng.
+
+> ⚠️ Đùi có **hai** lỗ và tôi chọn nhầm lần đầu: lấy lỗ Ø22,5 trục X làm trục
+> quay nên hông hất chân lên xuống như đang đạp xe. Lỗ đó chỉ là **cửa để lắp
+> servo vào hông đùi**. Lỗ Ø7,5 thẳng đứng mới là trục. Đường kính lớn hơn
+> không có nghĩa là quan trọng hơn — phải xét lỗ nào ăn khớp với cách servo
+> được gá.
+
+> ⚠️ **Nhớ kiểm dấu X.** Tệp in đôi chứa hai bản; viewer dùng nửa **PHẢI**
+> (`thigh1` ở X `+17..+34`, `foot1` ở X `+15..+57`) trong khi đo bằng script
+> lại lấy nửa **TRÁI**. Lấy nhầm dấu là lệch 51mm — chân văng tung toé quanh
+> thân. Đối chiếu `lo`/`span` trong `mesh-data.js` trước khi tin số đo.
+
+> Rig này là động học thuận thuần tuý, **không mô phỏng tiếp xúc mặt đất**.
+> Lúc hông vung hết 30°, bàn chân sẽ lún xuống dưới lưới; robot thật thì
+> nghiêng người lên thay vì lún.
+
+**Màn OLED** vẽ theo `main/display/oled_display.cc`: glyph emoji Noto 30px bên
+trái, chữ bên phải. Không phải mặt hoạt hình — bo `otto-robot` mới có GIF,
+nhưng bo đó dùng LCD 240×240 chứ không phải SSD1306.
+
+> **21 tên biểu cảm nhưng chỉ 9 khuôn mặt.** `emote.json` cho thấy `Happy.eaf`
+> gánh 10 tên: happy, laughing, funny, loving, embarrassed, confident,
+> delicious, silly, **surprised**, **relaxed**. Nghĩa là "ngạc nhiên" và "thư
+> giãn" trông y hệt "vui". Ngoài ra `neutral` ↔ `winking` bị **đổi chỗ cho
+> nhau** trong bảng: gửi `[neutral]` thì robot nháy mắt, gửi `[winking]` thì nó
+> mặt bình thường.
+
+**Nút "Nói thử một lượt"** chạy đúng trình tự có thật, mốc thời gian là trung
+vị đo được ngày 27/09/2026 (xem `server/README.md`): nghe → VAD chốt câu sau
+800ms → STT 757ms → **cảm xúc hiện ở mốc 477ms, trước tiếng nói** → TTS 433ms.
+
+> ⚠️ **Chân sẽ KHÔNG tự nhảy khi cắm máy thật.** Firmware phơi các động tác ra
+> dưới dạng **công cụ MCP** để LLM tự gọi (`otto_controller.cc`, thuộc tính
+> `action`: walk, turn, jump, swing, moonwalk, bend, shake_leg, updown,
+> whirlwind_leg, sit, showcase, home…). Server trong `server/` **chưa có một
+> dòng MCP nào** — nó mới gửi cảm xúc và tiếng nói. Nên robot sẽ nói và đổi mặt
+> nhưng đứng im. Giả lập cho thấy chân nhảy là để biết *sẽ* thế nào sau khi
+> làm cầu MCP.
 
 ## Tên tệp
 

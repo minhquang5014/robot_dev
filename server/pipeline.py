@@ -11,6 +11,7 @@ Hai cach dung:
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -22,6 +23,24 @@ import requests
 log = logging.getLogger("pipeline")
 
 GROQ_BASE = "https://api.groq.com/openai/v1"
+XAI_BASE = "https://api.x.ai/v1"
+
+# Mot Session dung chung cho ca tien trinh, KHONG phai requests.post() roi le.
+# Do ngay 27/09/2026, 4 luot moi kieu: mo ket noi moi moi lan -> trung vi
+# 683ms; dung lai Session -> 438ms. Moi luot noi goi Groq hai lan (STT + LLM)
+# nen khoan nay mot minh no da la ~490ms.
+#
+# pool_maxsize > 1 vi server that chay nhieu ket noi WebSocket song song; de
+# mac dinh 10 la du cho mot con robot de ban.
+def _make_session() -> "requests.Session":
+    s = requests.Session()
+    ad = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=10)
+    s.mount("https://", ad)
+    return s
+
+
+_SESSION = _make_session()   # Groq
+_XAI = _make_session()       # xAI
 
 # Danh sach emotion ma firmware hieu duoc, lay tu
 # xiaozhi-esp32/main/boards/espressif/esp-vocat/assets/360_360/emote.json
@@ -94,6 +113,7 @@ class Turn:
     ms_tts: int = 0
     ms_tts_first: int = 0      # streaming: TTS mat bao lau moi co chunk dau
     ms_first_audio: int = 0    # streaming: tu luc bat dau den chunk audio dau
+    ms_emotion: int = 0        # streaming: luc cam xuc san sang gui cho firmware
     history: list = field(default_factory=list)
 
     @property
@@ -118,7 +138,7 @@ def _groq_headers() -> dict:
 def list_models() -> list:
     """Hoi Groq xem hien con nhung model nao. Groq co xoa model theo thoi gian,
     nen khi gap loi 404 model_not_found thi chay ham nay truoc khi doan mo."""
-    r = requests.get(f"{GROQ_BASE}/models", headers=_groq_headers(), timeout=30)
+    r = _SESSION.get(f"{GROQ_BASE}/models", headers=_groq_headers(), timeout=30)
     r.raise_for_status()
     return sorted(m["id"] for m in r.json().get("data", []))
 
@@ -126,7 +146,7 @@ def list_models() -> list:
 def speech_to_text(audio_path: str, model: str = None) -> str:
     model = model or os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
     with open(audio_path, "rb") as f:
-        r = requests.post(
+        r = _SESSION.post(
             f"{GROQ_BASE}/audio/transcriptions",
             headers=_groq_headers(),
             files={"file": (os.path.basename(audio_path), f)},
@@ -210,7 +230,7 @@ def think(transcript: str, history: list = None, model: str = None,
     # Hoi lai toi da 1 lan neu cau tra loi khong phai tieng Viet. Chi ton them
     # ~360ms o dung nhung luot hong, luot binh thuong khong mat gi.
     for attempt in (1, 2):
-        r = requests.post(
+        r = _SESSION.post(
             f"{GROQ_BASE}/chat/completions",
             headers={**_groq_headers(), "Content-Type": "application/json"},
             json={
@@ -238,6 +258,76 @@ def think(transcript: str, history: list = None, model: str = None,
     return emotion, reply, history, tag
 
 
+def _llm_body(transcript, history, model, reasoning_effort, stream):
+    is_reasoning = any(h in model for h in REASONING_MODEL_HINTS)
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system",
+             "content": SYSTEM_PROMPT.format(emotions=", ".join(sorted(VALID_EMOTIONS)))},
+            *list(history or []),
+            {"role": "user", "content": transcript},
+        ],
+        "temperature": 0.8,
+        "max_tokens": 400 if is_reasoning else 150,
+        "stream": stream,
+    }
+    effort = reasoning_effort or os.environ.get("REASONING_EFFORT", "low")
+    if effort and is_reasoning:
+        body["reasoning_effort"] = effort
+    return body
+
+
+def think_stream(transcript: str, history: list = None, model: str = None,
+                 reasoning_effort: str = None):
+    """Generator dong bo: yield ("emotion", ten) roi ("text", doan chu).
+
+    Tag cam xuc nam o dau cau nen no ve rat som — do ngay 27/09/2026, token
+    dau tien ve sau 292ms trong khi ca cau mat 320-673ms. Bat duoc tag ngay
+    luc do de gui cho firmware doi mat TRUOC khi co tieng: nguoi dung thay
+    robot phan ung tuc thi thay vi ngoi do 1 giay.
+    """
+    model = model or os.environ.get("LLM_MODEL", "qwen/qwen3.8-27b")
+    r = _SESSION.post(
+        f"{GROQ_BASE}/chat/completions",
+        headers={**_groq_headers(), "Content-Type": "application/json"},
+        json=_llm_body(transcript, history, model, reasoning_effort, True),
+        stream=True, timeout=60,
+    )
+    if r.status_code != 200:
+        raise PipelineError(f"LLM that bai ({r.status_code}): {r.text[:300]}")
+
+    acc = ""
+    emitted_emotion = False
+    for line in r.iter_lines():
+        if not line or not line.startswith(b"data: "):
+            continue
+        data = line[6:]
+        if data == b"[DONE]":
+            break
+        try:
+            j = json.loads(data)
+        except ValueError:
+            continue
+        delta = (j["choices"][0].get("delta") or {}).get("content") or ""
+        if not delta:
+            continue
+        acc += delta
+        # Tag day du khi da thay dau ']'. Truoc do chua the doan chac.
+        if not emitted_emotion and "]" in acc:
+            emotion, _, tag = _split_emotion(acc)
+            emitted_emotion = True
+            yield ("emotion", emotion, tag)
+        if emitted_emotion:
+            yield ("text", delta, None)
+
+    if not emitted_emotion:
+        # Model quen tag. Van phai bao mot cam xuc de firmware khong treo mat.
+        yield ("emotion", "neutral", "")
+        yield ("text", acc, None)
+    yield ("done", acc, None)
+
+
 # Endpoint EdgeTTS mien phi thinh thoang tra ve NoAudioReceived du tham so dung
 # y nguyen. Do ngay 16/09/2026 voi 48 lan goi: hong 31%, KHONG lien quan do dai
 # cau hay tham so pitch/rate — that bai di theo tung DOT, co luc hong 5/6 lan
@@ -252,12 +342,80 @@ def _tts_params(voice, rate, pitch) -> tuple:
             pitch or os.environ.get("TTS_PITCH", "+15Hz"))
 
 
+def _xai_headers() -> dict:
+    key = os.environ.get("XAI_API_KEY", "").strip()
+    if not key:
+        raise PipelineError(
+            "Thieu XAI_API_KEY. Lay key tai https://console.x.ai roi dien vao "
+            "server/.env, hoac dat TTS_PROVIDER=edge de quay ve EdgeTTS."
+        )
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def _xai_tts_request(text: str, voice: str = None, pcm: bool = False) -> dict:
+    body = {
+        "text": text,
+        "language": "vi",
+        "voice_id": voice or os.environ.get("XAI_TTS_VOICE", "eve"),
+        # Do ngay 27/09/2026: optimize_streaming_latency 0/1/2 cho 221/214/219ms
+        # — khac biet nam trong nhieu do. Khong bat, de khoi danh doi chat luong.
+        "speed": float(os.environ.get("XAI_TTS_SPEED", "1.0")),
+    }
+    if pcm:
+        # Firmware can Opus 16kHz mono. Lay PCM thang thi chi con mot buoc ma
+        # hoa; lay MP3 thi phai giai ma roi ma hoa lai.
+        body["output_format"] = {"codec": "pcm", "sample_rate": 16000}
+    return body
+
+
+async def _tts_xai_stream(text: str, voice: str = None, pcm: bool = False):
+    """xAI TTS. Do ngay 27/09/2026: byte dau ~215ms, khong doi theo do dai cau;
+    ~20 luot khong lan nao hong. EdgeTTS cung phep do: 522ms va hong 1/10."""
+    def _post():
+        return _XAI.post(f"{XAI_BASE}/tts", headers=_xai_headers(),
+                         json=_xai_tts_request(text, voice, pcm),
+                         stream=True, timeout=90)
+
+    r = await asyncio.to_thread(_post)
+    if r.status_code != 200:
+        body = await asyncio.to_thread(lambda: r.text[:300])
+        raise PipelineError(f"xAI TTS that bai ({r.status_code}): {body}")
+
+    it = r.iter_content(4096)
+    got = False
+    while True:
+        chunk = await asyncio.to_thread(next, it, None)
+        if chunk is None:
+            break
+        if chunk:
+            got = True
+            yield chunk
+    if not got:
+        raise PipelineError("xAI TTS tra ve rong.")
+
+
 async def text_to_speech_stream(text: str, voice: str = None, rate: str = None,
-                                pitch: str = None):
-    """Async generator: tra ve tung chunk MP3 ngay khi EdgeTTS gui ve.
+                                pitch: str = None, pcm: bool = False):
+    """Async generator: tra ve tung chunk audio ngay khi co.
+
+    TTS_PROVIDER chon nha cung cap: "xai" (mac dinh) hoac "edge".
+    """
+    provider = os.environ.get("TTS_PROVIDER", "xai").strip().lower()
+    if provider == "xai":
+        async for chunk in _tts_xai_stream(text, voice, pcm):
+            yield chunk
+        return
+    async for chunk in _tts_edge_stream(text, voice, rate, pitch):
+        yield chunk
+
+
+async def _tts_edge_stream(text: str, voice: str = None, rate: str = None,
+                           pitch: str = None):
+    """EdgeTTS — mien phi nhung cham va hay hong. Giu lai lam phuong an du.
 
     Do ngay 17/09/2026, cau 79 ky tu: chunk dau ~500ms, xong ca cau ~750ms.
-    Phat ngay chunk dau thi nguoi nghe khong phai doi ca cau.
+    Do lai 27/09/2026: chunk dau 522ms va KHONG doi theo do dai cau (cau 3 chu
+    va cau 25 chu chenh nhau 23ms) — tuc gan nhu toan bo la bat tay WebSocket.
     """
     import edge_tts
 
@@ -348,12 +506,16 @@ def run_turn(audio_path: str, out_path: str, history: list = None) -> Turn:
 
 
 async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
-                          history: list = None):
-    """Async generator: dien dan `turn`, yield chunk MP3 ngay khi co.
+                          history: list = None, on_emotion=None, pcm: bool = False):
+    """Async generator: dien dan `turn`, yield chunk audio ngay khi co.
 
-    turn.emotion da co truoc chunk dau tien -> server gui cam xuc de firmware
-    ve mat TRUOC, roi moi day audio. STT va LLM dung requests (chan), nen day
-    sang thread de khong khoa event loop cua server.
+    `on_emotion(ten)` duoc goi NGAY khi tag cam xuc ve tu LLM — khoang 300ms,
+    tuc som hon tieng noi chung nua giay. Server phai dung no de day lenh doi
+    mat xuong firmware luon. Do la thu chua duoc cam giac "robot bi treo": do
+    tre tong cong khong doi may, nhung nguoi dung thay no phan ung ngay.
+
+    STT va LLM dung requests (chan), nen day sang thread de khong khoa event
+    loop cua server.
     """
     start = time.perf_counter()
 
@@ -366,13 +528,38 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
     else:
         turn.transcript = text
 
+    # --- LLM streaming: bat cam xuc som, gom chu lai de doc mot lan ---------
     t0 = time.perf_counter()
-    turn.emotion, turn.reply, turn.history, turn.emotion_raw = await asyncio.to_thread(
-        think, turn.transcript, history)
+    gen = think_stream(turn.transcript, history)
+    parts, raw = [], ""
+    while True:
+        item = await asyncio.to_thread(next, gen, None)
+        if item is None:
+            break
+        kind, val, extra = item
+        if kind == "emotion":
+            turn.emotion, turn.emotion_raw = val, extra
+            turn.ms_emotion = int((time.perf_counter() - start) * 1000)
+            if on_emotion:
+                res = on_emotion(val)
+                if asyncio.iscoroutine(res):
+                    await res
+        elif kind == "text":
+            parts.append(val)
+        elif kind == "done":
+            raw = val
+            break
+    turn.reply = _strip_stray_tags(_split_emotion(raw)[1] or "".join(parts))
+    turn.history = [*(history or []),
+                    {"role": "user", "content": turn.transcript},
+                    {"role": "assistant", "content": raw}]
     turn.ms_llm = int((time.perf_counter() - t0) * 1000)
 
+    # Doc CA cau mot lan thay vi cat tung menh de: xAI TTS ton ~215ms co dinh
+    # cho moi lan goi va gan nhu khong doi theo do dai, nen cat lam hai khuc
+    # chi to them ~215ms va de ra khoang lang giua cau.
     t0 = time.perf_counter()
-    tts = text_to_speech_stream(turn.reply)
+    tts = text_to_speech_stream(turn.reply, pcm=pcm)
     try:
         async for chunk in tts:
             if not turn.ms_first_audio:
