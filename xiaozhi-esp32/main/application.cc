@@ -602,6 +602,7 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
+        ESP_LOGI(TAG, "Incoming JSON type: %s", type->valuestring);
         if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
@@ -688,6 +689,7 @@ void Application::InitializeProtocol() {
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
+            ESP_LOGI(TAG, "LLM emotion: %s", cJSON_IsString(emotion) ? emotion->valuestring : "(none)");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());

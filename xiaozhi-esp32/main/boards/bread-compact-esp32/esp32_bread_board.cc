@@ -8,6 +8,7 @@
 #include "lamp_controller.h"
 #include "led/single_led.h"
 #include "display/oled_display.h"
+#include "otto_controller_simple.h"
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
@@ -130,6 +131,8 @@ private:
     // 物联网初始化，添加对 AI 可见设备
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
+        static OttoController otto(OTTO_LEFT_LEG_GPIO, OTTO_RIGHT_LEG_GPIO, OTTO_LEFT_FOOT_GPIO,
+                                   OTTO_RIGHT_FOOT_GPIO);
     }
 
 public:

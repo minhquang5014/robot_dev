@@ -223,6 +223,13 @@ void OledDisplay::SetupUI_128x64() {
     lv_label_set_text(battery_label_, "");
     lv_obj_set_style_text_font(battery_label_, icon_font, 0);
 
+    // Ẩn hẳn thanh trạng thái (wifi/pin/mic) — các hàm SetNetworkIcon()/
+    // SetBatteryIcon()/SetMuteIcon() ở lớp cha vẫn gọi vào 3 label trên bình
+    // thường (không bị crash), chỉ là không còn gì hiển thị ra màn hình nữa.
+    // Trước đây quên ẩn dòng này nên icon pin/wifi thỉnh thoảng hiện ra sát
+    // ngay phía trên 2 mắt, nhìn như "có thêm tròng mắt" không mong muốn.
+    lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
+
     // Không dùng status_bar_/chat_message_label_ dạng chữ trên bố cục này —
     // để trống cho 2 "mắt" chiếm toàn bộ phần còn lại. Vẫn khởi tạo các label
     // (ẩn, không gắn vào cây UI) để không phá interface SetChatMessage()/status
@@ -445,31 +452,35 @@ static constexpr int16_t kEyeCornerRadius = 9;
 
 static EyePair GetEyePairForEmotion(const std::string& e) {
     //                        w   h  top slope curve bot bcurve
-    // Ngạc nhiên / sốc: mắt to hơn, không mí
-    if (e == "surprised" || e == "shocked") return Same({30, 36, 0, 0, 0, 0, 0});
-    // Vui: đáy mắt bị che phẳng -> hình vòm úp
+    // Ngạc nhiên / sốc: mắt to hẳn lên, không mí — tương phản mạnh với neutral
+    if (e == "surprised" || e == "shocked") return Same({32, 40, 0, 0, 0, 0, 0});
+    // Vui: đáy mắt bị che phẳng -> hình vòm úp, mép hơi thon lại cho mềm mắt
     if (e == "happy" || e == "silly" || e == "delicious" || e == "loving" || e == "kissy")
-        return Same({28, 30, 0, 0, 0, 13, 0});
-    // Cười lớn: mắt thành vòng cung mảnh ⌒ (mí trên và mí dưới cùng cong)
-    if (e == "laughing" || e == "funny") return Same({30, 28, 0, 0, 10, 21, -10});
-    // Giận: mí trên dốc xuống phía trong, đáy hơi nâng
-    if (e == "angry") return Same({28, 30, 12, 55, 0, 3, 0});
-    // Buồn: mí trên dốc ngược, phía ngoài sụp xuống
-    if (e == "sad" || e == "crying") return Same({28, 30, 9, -55, 0, 2, 0});
-    // Ngượng: mí trên hạ nhẹ + đáy nâng, mắt nhìn né
-    if (e == "embarrassed") return Same({26, 30, 6, -25, 0, 6, 0});
-    // Bối rối / nghi ngờ: bất đối xứng — một mắt mí hạ thấp hơn
+        return Same({28, 32, 0, 0, 0, 16, -4});
+    // Cười lớn: mắt thành vòng cung mảnh ⌒, mỏng và cong hơn bản happy
+    if (e == "laughing" || e == "funny") return Same({30, 30, 0, 0, 14, 24, -14});
+    // Giận: che gần hết, chỉ chừa 1 nêm mỏng phía trong dốc xuống mạnh —
+    // giống nét mày nhíu lại chứ không chỉ nheo mắt.
+    if (e == "angry") return Same({28, 32, 14, 70, 0, 4, 0});
+    // Buồn / lo lắng: che gần hết mắt, chỉ chừa 1 dải mỏng cong ở đỉnh, dốc
+    // mạnh ra ngoài — trông như nét lông mày nhăn, không phải mắt nhắm hờ.
+    if (e == "sad" || e == "crying") return Same({28, 34, 24, -60, 0, 0, 0});
+    // Ngượng: tương tự buồn nhưng nhẹ hơn, đáy nâng lên chút (né tránh)
+    if (e == "embarrassed") return Same({26, 32, 16, -35, 0, 8, 0});
+    // Bối rối / nghi ngờ: bất đối xứng rõ — một mắt gần như nhắm nghiêng
+    // (như 1 bên mày nhướn lên), mắt kia gần như mở bình thường.
     if (e == "confused")
-        return {{26, 32, 3, 0, 0, 0, 0}, {26, 32, 13, 0, 0, 0, 0}};
-    // Suy nghĩ: mắt nhỏ lại, mí trên hạ
-    if (e == "thinking") return Same({24, 28, 6, 0, 0, 4, 0});
-    // Buồn ngủ: chỉ còn khe hẹp
-    if (e == "sleepy") return Same({30, 32, 16, 0, 0, 10, 0});
-    // Thư giãn: mí hạ nửa mắt, đáy hơi nâng
-    if (e == "relaxed") return Same({30, 32, 12, 0, 0, 8, 0});
+        return {{24, 30, 2, 0, 0, 0, 0}, {20, 30, 20, 40, 0, 0, 0}};
+    // Suy nghĩ: mắt nhỏ lại, bất đối xứng nhẹ (nhìn chếch lên)
+    if (e == "thinking") return {{22, 26, 8, 0, 0, 2, 0}, {18, 22, 12, 0, 0, 2, 0}};
+    // Buồn ngủ: che cả trên lẫn dưới, chỉ chừa khe ngang mỏng ở giữa —
+    // giống vạch dẹt phẳng, không còn dáng mắt.
+    if (e == "sleepy") return Same({32, 34, 13, 0, 0, 13, 0});
+    // Thư giãn / thờ ơ: khe ngang mỏng tương tự nhưng rộng hơn, ít dốc
+    if (e == "relaxed") return Same({32, 32, 11, 0, 0, 11, 0});
     // Tự tin / cà khịa: mí phẳng hạ nửa mắt, bất đối xứng nhẹ (nhếch mắt)
     if (e == "confident" || e == "cool")
-        return {{30, 32, 14, 0, 0, 6, 0}, {30, 32, 11, 0, 0, 6, 0}};
+        return {{30, 32, 16, 0, 0, 6, 0}, {30, 32, 10, 0, 0, 6, 0}};
     // neutral, winking (xử lý riêng) và mọi cảm xúc chưa liệt kê: chỉ có mắt
     return Same({26, 32, 0, 0, 0, 0, 0});
 }
@@ -521,6 +532,12 @@ void OledDisplay::ApplyEyeEmotionNow(const std::string& e) {
         // Mắt trái mở bình thường, mắt phải nheo thành khe — vui tinh nghịch
         pair = {{26, 32, 0, 0, 0, 0, 0}, {26, 32, 14, 0, 0, 14, 0}};
     }
+    ESP_LOGI(TAG, "EyeShape[%s] L(w=%d h=%d top=%d slope=%d curve=%d bot=%d bcurve=%d) "
+             "R(w=%d h=%d top=%d slope=%d curve=%d bot=%d bcurve=%d)",
+             e.c_str(), pair.left.w, pair.left.h, pair.left.top_cover, pair.left.top_slope,
+             pair.left.top_curve, pair.left.bottom_cover, pair.left.bottom_curve, pair.right.w,
+             pair.right.h, pair.right.top_cover, pair.right.top_slope, pair.right.top_curve,
+             pair.right.bottom_cover, pair.right.bottom_curve);
     ApplyEyeShape(left_eye_, pair.left);
     ApplyEyeShape(right_eye_, pair.right);
     ApplyLids(0, pair.left.w, pair.left.h, pair.left.top_cover, pair.left.top_slope,
