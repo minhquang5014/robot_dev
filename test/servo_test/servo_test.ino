@@ -261,6 +261,19 @@ void tiptoe(int height, float cycles) {
 // hong lech ban chan 90 do. DAU cua 90 do quyet dinh tien hay lui:
 // ban chan nghieng do don trong luong sang chan tru, dung luc hong dua
 // chan kia ve truoc. Doi dau -> don trong luong lech nhip -> di lui.
+// Doc so di ngay sau chu lenh, vd `w2`. Khong co so thi tra ve mac dinh.
+// Cung mot ly do nhu case 'a': phai delay cho not ky tu con lai vao dem
+// truoc khi peek, khong thi lenh go nhanh se bi doc hut.
+float optCount(float macDinh) {
+  delay(20);
+  if (!isDigit(Serial.peek())) return macDinh;
+  long n = Serial.parseInt();
+  if (n < 1) return macDinh;
+  if (n > 20) n = 20;            // chan tren, lo go w999 thi servo quay ca phut
+  return (float)n;
+}
+
+
 void walk(int dir, float cycles) {
   Serial.println(dir > 0 ? F("> DI TOI") : F("> DI LUI"));
   const int A[N]  = {30, 30, 30, 30};
@@ -316,6 +329,11 @@ void help() {
 
 void setup() {
   Serial.begin(115200);
+  // Mac dinh parseInt() cho het 1 GIAY xem con chu so nao nua khong. Go `w4`
+  // la dinh nguyen 1 giay chet truoc khi chan nhuc nhich — do duoc: w4 mat
+  // 5547ms con w trong mat 4563ms, cung la 4 buoc. Ha xuong 60ms thi khong
+  // con thay do tre, ma van du cho ky tu di het o 115200 baud.
+  Serial.setTimeout(60);
   delay(300);
   // Moc nay in mot lan duy nhat luc khoi dong. No hien lai giua bai test
   // nghia la board da reset — gan nhu chac chan do servo keo tut dien ap.
@@ -347,6 +365,16 @@ void loop() {
     case '3': toggleServo(LEFT_FOOT);  status(); break;
     case '4': toggleServo(RIGHT_FOOT); status(); break;
 
+    case 'A':
+      // Bat ca 4 va nang gioi han len 4 trong mot lenh. Bam `m` ba lan roi
+      // bam tung so thi deu viec, ma de lo buoc nen bang dieu khien goi cai
+      // nay. CHI dung khi da co nguon 5V ngoai — USB khong gong noi 4 con.
+      maxOn = 4;
+      for (uint8_t i = 0; i < N; i++) if (has(i) && !isOn(i)) toggleServo(i);
+      Serial.println(F("> bat ca 4 servo, gioi han = 4"));
+      status();
+      break;
+
     case 'm':
       maxOn = (maxOn == 1) ? 2 : (maxOn == 2 ? 4 : 1);
       Serial.print(F("> gioi han so servo chay cung luc = ")); Serial.println(maxOn);
@@ -356,12 +384,14 @@ void loop() {
       break;
 
     // ---- dang di ----
-    case 'j': jump(); break;
-    case 't': tiptoe(20, 4); break;
-    case 'w': walk(1, 4); break;
-    case 'b': walk(-1, 4); break;
-    case 'l': turn(1, 4); break;
-    case 'r': turn(-1, 4); break;
+    // Co the ghi so ngay sau lenh de chon so buoc:  w2  t3  l1
+    // Khong ghi gi thi giu nguyen mac dinh cu (4 buoc, nhay 1 cai).
+    case 'j': { int n = (int)optCount(1); for (int k = 0; k < n; k++) jump(); break; }
+    case 't': tiptoe(20, optCount(4)); break;
+    case 'w': walk(1,  optCount(4)); break;
+    case 'b': walk(-1, optCount(4)); break;
+    case 'l': turn(1,  optCount(4)); break;
+    case 'r': turn(-1, optCount(4)); break;
 
     case ',': ampScale = max(0.2, ampScale - 0.1); status(); break;
     case '.': ampScale = min(1.5, ampScale + 0.1); status(); break;
