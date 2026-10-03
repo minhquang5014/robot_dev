@@ -111,6 +111,7 @@ int8_t  onQ[N];
 uint8_t nOn = 0;
 uint8_t maxOn = 2;           // doi bang lenh `m`
 
+int   footLift   = 5;        // lech tam co chan, xem ghi chu trong walk()
 int   period     = 1000;     // chu ky mac dinh cua Walk trong Otto
 float ampScale   = 1.0;      // cang bia yeu thi ha xuong 0.5-0.7
 uint8_t sel      = LEFT_LEG; // con dang chon de chinh trim
@@ -302,7 +303,15 @@ float optCount(float macDinh) {
 void walk(int dir, float cycles) {
   Serial.println(dir > 0 ? F("> DI TOI") : F("> DI LUI"));
   const int A[N]  = {30, 30, 30, 30};
-  const int O[N]  = { 0,  0,  5, -5};   // offset chan de hoi khieng len
+  // LECH TAM co chan — day moi la cai quyet dinh chan dua nhac cao bao nhieu.
+  // Do tren mo hinh 3D (3D-print/viewer.html, ham __probeGait): giu hong 30,
+  // doi bien do co chan tu 10 den 50 do thi do nhac gan nhu khong doi, nhung
+  // doi LECH TAM thi:
+  //      5 do ->  5.0mm     10 do ->  9.6mm     15 do -> 13.4mm
+  // Bien do HONG khong anh huong gi ca (0 den 40 do deu cho 5.0mm) — dung
+  // thoi, hong xoay quanh truc dung thi khong nhac duoc gi.
+  // Otto de 5. Chan dua chi ho 5mm, lech trim vai do la quet dat.
+  const int O[N]  = { 0,  0,  footLift, -footLift};
   const int ph[N] = { 0,  0, dir * -90, dir * -90};
   oscillate(A, O, ph, cycles);
   home();
@@ -313,7 +322,7 @@ void turn(int dir, float cycles) {
   Serial.println(dir > 0 ? F("> QUAY TRAI") : F("> QUAY PHAI"));
   int A[N] = {30, 30, 20, 20};
   if (dir > 0) A[LEFT_LEG] = 10; else A[RIGHT_LEG] = 10;
-  const int O[N]  = {0, 0, 4, -4};
+  const int O[N]  = {0, 0, footLift - 1, -(footLift - 1)};
   const int ph[N] = {0, 0, -90, -90};
   oscillate(A, O, ph, cycles);
   home();
@@ -332,6 +341,7 @@ void status() {
   }
   Serial.print(F("  dang bat ")); Serial.print(nOn);
   Serial.print(F("/")); Serial.print(maxOn);
+  Serial.print(F("   nhac chan=")); Serial.print(footLift);
   Serial.print(F("   chu ky=")); Serial.print(period);
   Serial.print(F("ms   bien do x")); Serial.println(ampScale);
   Serial.println(F("--------------------------------"));
@@ -422,6 +432,14 @@ void loop() {
       Serial.print(F("> den tu the "));
       for (uint8_t i = 0; i < N; i++) { Serial.print(t[i]); Serial.print(i < N-1 ? ',' : ' '); }
       Serial.print(F("trong ")); Serial.print(ms); Serial.println(F("ms"));
+      break;
+    }
+
+    // O<n> — doi lech tam co chan. Day la nut chinh do NHAC CHAN.
+    case 'O': {
+      long v = Serial.parseInt();
+      footLift = constrain(v, 0L, 25L);
+      Serial.print(F("> lech tam co chan = ")); Serial.println(footLift);
       break;
     }
 

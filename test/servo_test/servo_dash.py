@@ -197,6 +197,18 @@ class Dash:
         ttk.Button(f3, text="Gốc Otto (188°/s)", width=18,
                    command=lambda: self.cmd("D", 0)).grid(row=1, column=2, columnspan=2,
                                                           padx=3, pady=(6, 0))
+        # Lech tam co chan — do tren mo hinh 3D thi DAY moi la nut quyet dinh
+        # chan dua nhac cao bao nhieu, khong phai bien do.
+        lift = ttk.Frame(f3); lift.grid(row=2, column=0, columnspan=4,
+                                        sticky="w", pady=(8, 0))
+        ttk.Label(lift, text="Nhấc chân (lệch tâm cổ chân)").pack(side="left")
+        self.lift = tk.StringVar(value="5")
+        ttk.Spinbox(lift, from_=0, to=25, width=4, textvariable=self.lift,
+                    justify="center").pack(side="left", padx=5)
+        ttk.Button(lift, text="Đặt", width=6,
+                   command=self.set_lift).pack(side="left")
+        ttk.Label(lift, text="  5°≈5mm · 10°≈9.6mm · 15°≈13mm",
+                  foreground="#777").pack(side="left", padx=(8, 0))
 
         f5 = ttk.LabelFrame(t, text="Chẩn đoán", padding=8)
         f5.grid(row=3, column=0, sticky="ew", pady=3)
@@ -389,6 +401,13 @@ class Dash:
             if isinstance(c, ttk.Button):
                 yield c
             yield from self._all_buttons(c)
+
+    def set_lift(self):
+        try:
+            v = max(0, min(25, int(self.lift.get())))
+        except ValueError:
+            v = 5
+        self.cmd("O%d\n" % v, 0)
 
     def gait(self, ch, ms_each):
         try:

@@ -930,6 +930,64 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     theta = t; phi = f; if (r) radius = r; place();
   };
   window.__radius = function () { return radius; };
+  // Ban chi tiet cua __probeGait: tra ve goc servo va khoang ho tung mau.
+  window.__traceGait = function (hipA, ankA, ankO, n) {
+    var keep = sim.move;
+    MOVES.__probe = { vi: 'dò', T: 1000, A: [hipA, hipA, ankA, ankA],
+                      O: [0, 0, ankO, -ankO], P: [0, 0, 90, 90] };
+    sim.move = '__probe';
+    resetGround();
+    var rows = [];
+    n = n || 12;
+    for (var k = 0; k < n; k++) {
+      var t = k * 1000 / n;
+      animateRig(t);
+      var c = window.__clearance();
+      rows.push({ t: Math.round(t),
+                  a: servoAngles(t).map(function (x) { return Math.round(x); }),
+                  c: c ? c.map(function (x) { return +x.toFixed(1); }) : null });
+    }
+    sim.move = keep; delete MOVES.__probe; resetGround();
+    return rows;
+  };
+
+  // Quet mot chu ky voi bo tham so tu chon, tra ve khoang ho lon nhat ma
+  // chan dua dat duoc. Dung de tra loi: bien do bao nhieu thi chan moi nhac
+  // khoi mat dat, khong con quet dat.
+  window.__probeGait = function (hipA, ankA, ankO) {
+    var keep = sim.move;
+    MOVES.__probe = { vi: 'dò', T: 1000, A: [hipA, hipA, ankA, ankA],
+                      O: [0, 0, ankO, -ankO], P: [0, 0, 90, 90] };
+    sim.move = '__probe';
+    resetGround();
+    var best = -999;
+    for (var k = 0; k < 60; k++) {
+      animateRig(k * 1000 / 60);
+      var c = window.__clearance();
+      if (!c) continue;
+      var swing = Math.max(c[0], c[1]);     // chan dua la chan cao hon
+      if (swing > best) best = swing;
+    }
+    sim.move = keep; delete MOVES.__probe; resetGround();
+    return best;
+  };
+
+  // Do khoang ho cua tung ban chan so voi mat dat, SAU khi da ha robot xuong.
+  // Chan tru luon cham 0; chan kia ho bao nhieu chinh la khoang no nhac len
+  // duoc. Ho <= 0 nghia la no dang quet dat — day la cai lam dang di "can".
+  window.__clearance = function () {
+    var rig = sim.rig; if (!rig || !rig.sole[0]) return null;
+    var out = [];
+    for (var s = 0; s < 2; s++) {
+      var lo = Infinity;
+      for (var i = 0; i < rig.sole[s].length; i++) {
+        var w = rig.sole[s][i].clone().applyMatrix4(rig.ankle[s].matrixWorld);
+        if (w.y < lo) lo = w.y;
+      }
+      out.push(lo);
+    }
+    return out;
+  };
   window.__pose = function () {
     return { x: gnd.dx, y: gnd.dy, z: gnd.dz, yaw: gnd.ry,
              sup: gnd.key ? (gnd.key[0] === '0' ? 'trái' : 'phải') : '?' };
