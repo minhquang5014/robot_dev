@@ -400,6 +400,41 @@ void loop() {
       status();
       break;
 
+    // ---- dung chuoi tu the bang tay ----
+    // G<ll>,<rl>,<lf>,<rf>,<ms>  — dua CA BON servo toi tu the do trong <ms>.
+    // Thu tu dung bang chi so trong code: hong trai, hong phai, co chan trai,
+    // co chan phai. Vi du:  G90,90,70,110,400
+    // Dung moveServos() nen duong di duoc noi suy, khong giat.
+    case 'G': {
+      // DOC RA BIEN TRUOC roi moi constrain. constrain() la MACRO, no tinh
+      // bieu thuc dau vao TOI BA LAN:
+      //   #define constrain(a,l,h) ((a)<(l)?(l):((a)>(h)?(h):(a)))
+      // Viet constrain(Serial.parseInt(),0,180) la moi khop ngon ba con so.
+      // Gui G90,90,70,110,400 thi nhan duoc 70,180,0,0 — dung ba con mot.
+      int t[N];
+      for (uint8_t i = 0; i < N; i++) {
+        long v = Serial.parseInt();
+        t[i] = constrain(v, 0L, 180L);
+      }
+      int ms = Serial.parseInt();
+      if (ms < 50) ms = 300;
+      moveServos(ms, t);
+      Serial.print(F("> den tu the "));
+      for (uint8_t i = 0; i < N; i++) { Serial.print(t[i]); Serial.print(i < N-1 ? ',' : ' '); }
+      Serial.print(F("trong ")); Serial.print(ms); Serial.println(F("ms"));
+      break;
+    }
+
+    // Bao tu the hien tai o dang may doc duoc, de bang dieu khien ghi khung.
+    case 'Q': {
+      Serial.print(F("POSE "));
+      for (uint8_t i = 0; i < N; i++) {
+        Serial.print((int)lround(angle[i]));
+        Serial.print(i < N-1 ? ',' : '\n');
+      }
+      break;
+    }
+
     // Hai muc cai san. Toc do goc dinh cua dao dong hinh sin la A*2*pi/T:
     //   goc Otto   bien do 30, chu ky 1000ms -> 188 do/giay  (nhanh, giat)
     //   nhip em    bien do 21, chu ky 1800ms ->  73 do/giay  (diu nhu EMO)
