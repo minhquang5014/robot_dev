@@ -169,6 +169,12 @@ class Dash:
                                        ("chậm hơn", "<"), ("nhanh hơn", ">")]):
             ttk.Button(f3, text=ten, width=12,
                        command=lambda k=ch: self.cmd(k, 0)).grid(row=0, column=i, padx=3)
+        ttk.Button(f3, text="Nhịp êm (73°/s)", width=18,
+                   command=lambda: self.cmd("S", 0)).grid(row=1, column=0, columnspan=2,
+                                                          padx=3, pady=(6, 0))
+        ttk.Button(f3, text="Gốc Otto (188°/s)", width=18,
+                   command=lambda: self.cmd("D", 0)).grid(row=1, column=2, columnspan=2,
+                                                          padx=3, pady=(6, 0))
 
         # ---- can chinh ----
         f4 = ttk.LabelFrame(root, text="Căn chỉnh — tác động lên servo vừa chọn ở trên",

@@ -101,7 +101,7 @@ Servo sv[N];
 const int8_t pins[N]  = {PIN_LEFT_LEG, PIN_RIGHT_LEG, PIN_LEFT_FOOT, PIN_RIGHT_FOOT};
 const char*  names[N] = {"LEFT_LEG", "RIGHT_LEG", "LEFT_FOOT", "RIGHT_FOOT"};
 
-int   angle[N]    = {90, 90, 90, 90};   // goc dang giu (chua cong trim)
+float angle[N]    = {90, 90, 90, 90};   // goc dang giu (chua cong trim)
 int   trim[N]     = {0, 0, 0, 0};       // bu lech co khi
 bool  attached[N] = {false, false, false, false};
 
@@ -142,11 +142,17 @@ void detachAll() {
 
 // Goc thuc xuat ra = goc mong muon + trim, chan trong 0..180.
 // Con dang TAT thi bo qua hoan toan — khong cam, khong an dong.
-void writeServo(uint8_t i, int deg) {
+void writeServo(uint8_t i, float deg) {
   if (!has(i) || !isOn(i)) return;
-  angle[i] = constrain(deg, 0, 180);
+  angle[i] = constrain(deg, 0.0f, 180.0f);
   attachOne(i);
-  sv[i].write(constrain(angle[i] + trim[i], 0, 180));
+  // writeMicroseconds chu khong phai write(). write() chi nhan SO NGUYEN do,
+  // tuc buoc nho nhat la 1 do. O nhip cham — thu ma minh muon cho muot — moi
+  // lan cap nhat chi nhich 1-2 do, lam tron thanh so nguyen la thay ro tung
+  // nac. Doi sang do rong xung thi buoc con ~0.09 do.
+  float d = constrain(angle[i] + trim[i], 0.0f, 180.0f);
+  sv[i].writeMicroseconds(
+      (int)lround(PULSE_MIN + (PULSE_MAX - PULSE_MIN) * d / 180.0f));
   lastCmd = millis();
 }
 
@@ -194,7 +200,7 @@ void toggleServo(uint8_t i) {
 // nhay mot phat — day cung la ly do Otto dung dao dong hinh sin.
 void moveSlow(uint8_t i, int target, int msPerDeg) {
   if (!isOn(i)) { Serial.println(F("? servo nay dang TAT, bam so de bat")); return; }
-  int from = angle[i];
+  float from = angle[i];
   int step = (target > from) ? 1 : -1;
   for (int d = from; d != target; d += step) {
     writeServo(i, d);
@@ -206,12 +212,12 @@ void moveSlow(uint8_t i, int target, int msPerDeg) {
 // Noi suy tuyen tinh toi dich trong `ms`. Otto dung cach nay cho Jump
 // (otto_movements.cc:286), khac han kieu dao dong sin ben duoi.
 void moveServos(int ms, const int target[N]) {
-  int from[N];
+  float from[N];
   for (uint8_t i = 0; i < N; i++) from[i] = angle[i];
   int steps = max(1, ms / REFRESH_MS);
   for (int s = 1; s <= steps; s++) {
     for (uint8_t i = 0; i < N; i++)
-      if (isOn(i)) writeServo(i, from[i] + (long)(target[i] - from[i]) * s / steps);
+      if (isOn(i)) writeServo(i, from[i] + (target[i] - from[i]) * (float)s / steps);
     delay(REFRESH_MS);
   }
 }
@@ -219,15 +225,34 @@ void moveServos(int ms, const int target[N]) {
 // Trai tim cua dang di Otto: cac servo cung dao dong hinh sin, khac nhau o
 // LECH PHA. Chinh lech pha la doi han kieu di, khong phai doi bien do.
 void oscillate(const int A[N], const int O[N], const int ph[N], float cycles) {
+  // DAT CHAN VAO NHIP TRUOC DA.
+  // Luc t=0 cong thuc sin khong cho ra 90 do. Vi du DI TOI: hai co chan co
+  // lech pha -90, nen sin(-90) = -1 va goc dau tien la 65 va 55 do. Servo
+  // dang dung yen o 90 bi quang thang toi do ngay lan cap nhat dau tien —
+  // giat 25 va 35 do o toc do toi da. Moi lan bam di la mot cu giat.
+  // Noi suy toi tu the t=0 truoc roi moi dao dong thi het han.
+  int t0pose[N];
+  int jump = 0;
+  for (uint8_t i = 0; i < N; i++) {
+    t0pose[i] = 90 + O[i] + (int)lround(A[i] * ampScale * sin(radians(ph[i])));
+    if (isOn(i)) jump = max(jump, (int)lround(fabs(t0pose[i] - angle[i])));
+  }
+  if (jump > 2) moveServos(constrain(200 + jump * 6, 200, 500), t0pose);
+
   unsigned long total = (unsigned long)(period * cycles);
   unsigned long t0 = millis(), t;
+  unsigned long next = millis();
   while ((t = millis() - t0) < total) {
     for (uint8_t i = 0; i < N; i++) {
       if (!isOn(i)) continue;
       float rad = 2.0 * PI * (float)t / (float)period + radians(ph[i]);
       writeServo(i, 90 + O[i] + (int)lround(A[i] * ampScale * sin(rad)));
     }
-    delay(REFRESH_MS);
+    // Bam theo moc thoi gian thay vi delay(20) sau khi tinh. Tinh 4 cai sin
+    // tren AVR ton vai ms, cong don lai lam chu ky dai hon muc dat.
+    next += REFRESH_MS;
+    long wait = (long)(next - millis());
+    if (wait > 0) delay(wait); else next = millis();
   }
 }
 
@@ -302,7 +327,7 @@ void status() {
     Serial.print(names[i]);
     if (!has(i)) { Serial.println(F("   (chua khai chan)")); continue; }
     Serial.print(F("  chan=")); Serial.print(pins[i]);
-    Serial.print(F("  goc="));  Serial.print(angle[i]);
+    Serial.print(F("  goc="));  Serial.print((int)lround(angle[i]));
     Serial.print(F("  trim=")); Serial.println(trim[i]);
   }
   Serial.print(F("  dang bat ")); Serial.print(nOn);
@@ -375,6 +400,16 @@ void loop() {
       status();
       break;
 
+    // Hai muc cai san. Toc do goc dinh cua dao dong hinh sin la A*2*pi/T:
+    //   goc Otto   bien do 30, chu ky 1000ms -> 188 do/giay  (nhanh, giat)
+    //   nhip em    bien do 21, chu ky 1800ms ->  73 do/giay  (diu nhu EMO)
+    case 'S': period = 1800; ampScale = 0.7;
+              Serial.println(F("> nhip em: chu ky 1800ms, bien do x0.70"));
+              status(); break;
+    case 'D': period = 1000; ampScale = 1.0;
+              Serial.println(F("> ve goc Otto: chu ky 1000ms, bien do x1.00"));
+              status(); break;
+
     case 'm':
       maxOn = (maxOn == 1) ? 2 : (maxOn == 2 ? 4 : 1);
       Serial.print(F("> gioi han so servo chay cung luc = ")); Serial.println(maxOn);
@@ -428,7 +463,7 @@ void loop() {
     case 'z':
       // Nhich den khi cang thang bang mat, roi bam z: do lech so voi 90
       // chinh la trim can nap vao Otto::SetTrims().
-      trim[sel] += angle[sel] - 90;
+      trim[sel] += (int)lround(angle[sel] - 90);
       angle[sel] = 90;
       writeServo(sel, 90);
       Serial.print(F("> trim moi cua ")); Serial.print(names[sel]);
