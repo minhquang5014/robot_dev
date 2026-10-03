@@ -16,6 +16,7 @@ Can: pip install pyserial   (tkinter co san trong Python tren Windows)
 import argparse
 import io
 import queue
+import re
 import sys
 import threading
 import time
@@ -116,6 +117,7 @@ class Dash:
         self.root = root
         self.q = queue.Queue()
         self.busy_until = 0.0
+        self.n_on = 0          # so servo dang bat, doc tu dong 'dang bat N/M'
         root.title("Servo Otto — " + port)
         root.configure(padx=10, pady=10)
 
@@ -219,6 +221,11 @@ class Dash:
             n = max(1, min(20, int(self.counts[ch].get())))
         except ValueError:
             n = 1
+        # Moi lan mo cong la Uno reset ve mac dinh 2/2, tuc CHI HAI servo bat.
+        # Bam dang di luc do thi hai con kia nam im, rat de tuong la hong.
+        if self.n_on < 4:
+            self.put("!!! mới có %d/4 servo bật — bấm “Bật cả 4” trước, "
+                     "không thì hai con kia nằm im." % self.n_on)
         # Do thuc te tren may that: dung 1000ms moi buoc di (chu ky), cong
         # them ~600ms home() o cuoi bai. Cho du 900ms cho chac.
         self.cmd("%s%d" % (ch, n), n * ms_each + 900)
@@ -253,6 +260,9 @@ class Dash:
                 self.put(line)
                 if "dang bat" in line or "gioi han" in line:
                     self.state.set(line.strip())
+                m = re.search(r"dang bat (\d+)/(\d+)", line)
+                if m:
+                    self.n_on = int(m.group(1))
         except queue.Empty:
             pass
         if self.busy_until and time.monotonic() >= self.busy_until:
