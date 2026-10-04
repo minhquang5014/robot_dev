@@ -233,6 +233,10 @@ class Dash:
                     justify="center").pack(side="left", padx=(12, 2))
         ttk.Button(w, text="Ăn mừng", width=11,
                    command=lambda: self.gait("C", 620)).pack(side="left")
+        # Ca bai nhay — do thuc te 14.8 giay, cho du 17.
+        ttk.Button(fe, text="★  ĐIỆU NHẢY  (14.8 giây)", width=30,
+                   command=lambda: self.cmd("Z", 17000)
+                   ).grid(row=3, column=0, columnspan=2, pady=(8, 0))
 
         f3 = ttk.LabelFrame(t, text="Biên độ & nhịp", padding=8)
         f3.grid(row=3, column=0, sticky="ew", pady=3)

@@ -364,6 +364,90 @@ void celebrate(int reps) {
 }
 
 
+// ---------------------------------------------------------------------------
+// DIEU NHAY — ghep cac dong tac da lam thanh mot bai co cau truc.
+//
+// Hai dieu lam no ra "nhay" chu khong phai "chay lan luot may lenh":
+//
+//  1. KHONG goi home() giua cac doan. Moi lan home() la 600ms dung im, dut
+//     mach ngay. Bai nay goi thang oscillate()/moveServos() nen cac doan
+//     noi lien, chi home() mot lan o cuoi.
+//  2. CO DUNG LAI dung cho. Nhac lien tuc thi nhin nhu may khuay; vai nhip
+//     lang giua cac doan moi lam dong tac "doc" duoc.
+//
+// Cau truc:  vao bai -> diep khuc A -> ngo nghieng B -> A nhanh hon
+//            -> lay da -> nhay -> chot dang kieng chan
+// ---------------------------------------------------------------------------
+void danceCute() {
+  Serial.println(F("> DIEU NHAY"));
+  const int BEAT = 480;
+  int keep = period;
+
+  // --- vao bai: hai cai nhun nho, kieu "chuan bi day nhe" ---
+  for (int i = 0; i < 2; i++) {
+    int d[N] = {90, 90, 90 - 18, 90 + 18};
+    int u[N] = {90, 90, 90, 90};
+    moveServos(190, d);
+    moveServos(190, u);
+  }
+  delay(BEAT / 2);
+
+  // --- diep khuc A: lac lu + giam chan ---
+  // Hai co chan CUNG pha -> than lac qua lai, hai ban chan thay nhau nhac.
+  period = BEAT * 2;
+  {
+    const int A[N]  = {10, -10, 22, 22};
+    const int O[N]  = {0, 0, 0, 0};
+    const int ph[N] = {0, 0, 0, 0};
+    oscillate(A, O, ph, 4);
+  }
+  delay(BEAT / 2);
+
+  // --- doan B: ngo trai roi ngo phai, moi ben mot nhip ---
+  {
+    const int O[N]  = {0, 0, footLift, -footLift};
+    const int ph[N] = {0, 0, -90, -90};
+    int AL[N] = {7, -2, 26, 26};
+    int AR[N] = {-2, 7, 26, 26};
+    period = BEAT * 2;
+    oscillate(AL, O, ph, 1);
+    oscillate(AR, O, ph, 1);
+  }
+  delay(BEAT / 2);
+
+  // --- A nhanh hon, don len ---
+  period = (int)(BEAT * 1.4);
+  {
+    const int A[N]  = {14, -14, 26, 26};
+    const int O[N]  = {0, 0, 0, 0};
+    const int ph[N] = {0, 0, 0, 0};
+    oscillate(A, O, ph, 4);
+  }
+  period = keep;
+
+  // --- lay da: nga cham roi bat nhanh ---
+  {
+    int back[N] = {90, 90, 90 + 32, 90 - 32};
+    int fwd[N]  = {90, 90, 90 - 32, 90 + 32};
+    moveServos(520, back);
+    delay(220);
+    moveServos(150, fwd);
+    delay(120);
+  }
+
+  // --- cao trao: nhay ---
+  jump();
+
+  // --- chot dang: kieng chan giu lau ---
+  {
+    int pose[N] = {90, 90, 90 - 40, 90 + 40};
+    moveServos(380, pose);
+    delay(1100);
+  }
+  home();
+}
+
+
 void tiptoe(int height, float cycles) {
   Serial.println(F("> KHIENG CHAN"));
   const int A[N]  = {0, 0, height,  height};
@@ -547,6 +631,7 @@ void loop() {
     case 'n': microPivot( 1, (int)optCount(2)); break;
     case 'N': microPivot(-1, (int)optCount(2)); break;
     case 'C': celebrate((int)optCount(4)); break;
+    case 'Z': danceCute(); break;        // ca bai nhay
     case 'y': {
       long r = Serial.parseInt();
       long g = Serial.parseInt();
