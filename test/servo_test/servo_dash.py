@@ -202,8 +202,40 @@ class Dash:
         ttk.Label(kc, text="40° = cổ chân 50 và 130",
                   foreground="#777").pack(side="left", padx=(8, 0))
 
+        # Bon dong tac kieu EMO: nhich tung ti de can goc / can khoang cach,
+        # lay da roi day, va an mung. So lieu chon tu phep do tren mo hinh:
+        # 1.65mm moi do bien do hong khi di, 2.6 do xoay moi do khi quay.
+        fe = ttk.LabelFrame(t, text="Kiểu EMO — nhích từng tí", padding=8)
+        fe.grid(row=2, column=0, sticky="ew", pady=3)
+        EMO = [("Nhích tới", "e", 900), ("Nhích lùi", "E", 900),
+               ("Xoay nhích trái", "n", 1100), ("Xoay nhích phải", "N", 1100)]
+        for i, (ten, ch, ms) in enumerate(EMO):
+            cell = ttk.Frame(fe); cell.grid(row=i // 2, column=i % 2, padx=4, pady=3)
+            v = tk.StringVar(value="2"); self.counts[ch] = v
+            ttk.Spinbox(cell, from_=1, to=20, width=3, textvariable=v,
+                        justify="center").pack(side="left")
+            ttk.Button(cell, text=ten, width=16,
+                       command=lambda c2=ch, m=ms: self.gait(c2, m)).pack(side="left")
+        w = ttk.Frame(fe); w.grid(row=2, column=0, columnspan=2,
+                                  sticky="w", pady=(6, 0))
+        ttk.Label(w, text="Lấy đà:  lần").pack(side="left")
+        self.y_n = tk.StringVar(value="1")
+        ttk.Spinbox(w, from_=1, to=10, width=3, textvariable=self.y_n,
+                    justify="center").pack(side="left", padx=4)
+        ttk.Label(w, text="nghiêng").pack(side="left")
+        self.y_lean = tk.StringVar(value="35")
+        ttk.Spinbox(w, from_=5, to=60, width=3, textvariable=self.y_lean,
+                    justify="center").pack(side="left", padx=4)
+        ttk.Button(w, text="Lấy đà + đẩy", width=14,
+                   command=self.windup).pack(side="left", padx=3)
+        v2 = tk.StringVar(value="4"); self.counts["C"] = v2
+        ttk.Spinbox(w, from_=1, to=20, width=3, textvariable=v2,
+                    justify="center").pack(side="left", padx=(12, 2))
+        ttk.Button(w, text="Ăn mừng", width=11,
+                   command=lambda: self.gait("C", 620)).pack(side="left")
+
         f3 = ttk.LabelFrame(t, text="Biên độ & nhịp", padding=8)
-        f3.grid(row=2, column=0, sticky="ew", pady=3)
+        f3.grid(row=3, column=0, sticky="ew", pady=3)
         for i, (ten, ch) in enumerate([("biên độ −", ","), ("biên độ +", "."),
                                        ("chậm hơn", "<"), ("nhanh hơn", ">")]):
             ttk.Button(f3, text=ten, width=12,
@@ -228,7 +260,7 @@ class Dash:
                   foreground="#777").pack(side="left", padx=(8, 0))
 
         f5 = ttk.LabelFrame(t, text="Chẩn đoán", padding=8)
-        f5.grid(row=3, column=0, sticky="ew", pady=3)
+        f5.grid(row=4, column=0, sticky="ew", pady=3)
         for i, (ten, ch, ms) in enumerate([("Quét thô 4 chân (X)", "X", 16000),
                                            ("Quét dải xung (P)", "P", 22000),
                                            ("Nhả hết servo", "d", 0)]):
@@ -418,6 +450,21 @@ class Dash:
             if isinstance(c, ttk.Button):
                 yield c
             yield from self._all_buttons(c)
+
+    def windup(self):
+        try:
+            n = max(1, min(10, int(self.y_n.get())))
+        except ValueError:
+            n = 1
+        try:
+            lean = max(5, min(60, int(self.y_lean.get())))
+        except ValueError:
+            lean = 35
+        if self.n_on < 4:
+            self.put("!!! mới có %d/4 servo bật — bấm “Bật cả 4” trước." % self.n_on)
+        # Do thuc te: moi lan ~1.6s (600 nga + 250 giu + 170 day + 200 + 400),
+        # cong ~600ms home() o cuoi.
+        self.cmd("y%d,%d\n" % (n, lean), n * 1700 + 900)
 
     def tiptoe_hold(self):
         try:

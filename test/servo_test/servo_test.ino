@@ -293,6 +293,77 @@ void tiptoeHold(int lean, int reps) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Bon dong tac kieu EMO. Cac con so duoi day DO tren mo hinh 3D
+// (3D-print/viewer.html, ham __probeMove), khong phai uoc luong:
+//
+//   di thang, 1 chu ky:   1.65mm moi do bien do hong
+//      hong  5 ->  8.6mm      hong 15 -> 25.6mm      hong 30 -> 49.4mm
+//   xoay, 1 chu ky, hong kia nguoc 1/3:   2.6 do moi do bien do
+//      5/-2 -> 14 do      12/-4 -> 31 do      30/-10 -> 78 do
+//
+// EMO nhich tung ti mot de can goc va can khoang cach, nen chon muc nho:
+// buoc nhich hong 8 (~14mm), xoay nhich hong 5/-2 (~14 do).
+// ---------------------------------------------------------------------------
+
+// Nhich mot buoc nho. dir 1 = toi, -1 = lui.
+void microStep(int dir, int reps) {
+  Serial.print(F("> NHICH BUOC ")); Serial.println(dir > 0 ? F("toi") : F("lui"));
+  const int A[N]  = {8, 8, 30, 30};
+  const int O[N]  = {0, 0, footLift, -footLift};
+  const int ph[N] = {0, 0, dir * 90, dir * 90};
+  int keep = period; period = 900;
+  oscillate(A, O, ph, reps);        // khong home() giua chung cho lien mach
+  period = keep;
+  home();
+}
+
+// Xoay nhich de can goc. dir 1 = trai, -1 = phai.
+void microPivot(int dir, int reps) {
+  Serial.print(F("> XOAY NHICH ")); Serial.println(dir > 0 ? F("trai") : F("phai"));
+  int A[N] = {5, 5, 30, 30};
+  if (dir > 0) A[LEFT_LEG] = -2; else A[RIGHT_LEG] = -2;
+  const int O[N]  = {0, 0, footLift, -footLift};
+  const int ph[N] = {0, 0, -90, -90};
+  int keep = period; period = 1100;
+  oscillate(A, O, ph, reps);
+  period = keep;
+  home();
+}
+
+// Lay da roi day: nga nguoi ve mot ben that cham, roi bat nguoc lai that
+// nhanh. Dung cho dong tac nem/day cua EMO.
+void windUp(int lean, int reps) {
+  Serial.print(F("> LAY DA, nghieng ")); Serial.println(lean);
+  int back[N] = {90, 90, 90 + lean, 90 - lean};
+  int fwd[N]  = {90, 90, 90 - lean, 90 + lean};
+  int mid[N]  = {90, 90, 90, 90};
+  for (int k = 0; k < reps; k++) {
+    moveServos(600, back);     // ghim da: cham
+    delay(250);
+    moveServos(170, fwd);      // day: nhanh gap ba lan
+    delay(200);
+    moveServos(400, mid);
+    if (k < reps - 1) delay(150);
+  }
+  home();
+}
+
+// An mung: giam chan luan phien + lac than. Hai co chan CUNG pha thi than
+// lac qua lai va hai ban chan thay nhau nhac len — dung la giam chan.
+// Them hong dao nguoc nhau cho co chut van minh.
+void celebrate(int reps) {
+  Serial.println(F("> AN MUNG"));
+  const int A[N]  = {12, -12, 22, 22};
+  const int O[N]  = {0, 0, 0, 0};
+  const int ph[N] = {0, 0, 0, 0};
+  int keep = period; period = 620;      // nhanh hon dang di cho ra ve phan khich
+  oscillate(A, O, ph, reps);
+  period = keep;
+  home();
+}
+
+
 void tiptoe(int height, float cycles) {
   Serial.println(F("> KHIENG CHAN"));
   const int A[N]  = {0, 0, height,  height};
@@ -465,6 +536,23 @@ void loop() {
       Serial.print(F("> den tu the "));
       for (uint8_t i = 0; i < N; i++) { Serial.print(t[i]); Serial.print(i < N-1 ? ',' : ' '); }
       Serial.print(F("trong ")); Serial.print(ms); Serial.println(F("ms"));
+      break;
+    }
+
+    // ---- bon dong tac kieu EMO ----
+    // e/E <lan>  nhich buoc toi / lui      n/N <lan>  xoay nhich trai / phai
+    // y<lan>,<nghieng>  lay da roi day     C<lan>     an mung
+    case 'e': microStep( 1, (int)optCount(2)); break;
+    case 'E': microStep(-1, (int)optCount(2)); break;
+    case 'n': microPivot( 1, (int)optCount(2)); break;
+    case 'N': microPivot(-1, (int)optCount(2)); break;
+    case 'C': celebrate((int)optCount(4)); break;
+    case 'y': {
+      long r = Serial.parseInt();
+      long g = Serial.parseInt();
+      int reps = (r < 1) ? 1 : (int)constrain(r, 1L, 10L);
+      int lean = (g < 5) ? 35 : (int)constrain(g, 5L, 60L);
+      windUp(lean, reps);
       break;
     }
 
