@@ -184,6 +184,23 @@ class Dash:
                         justify="center").pack(side="left")
             ttk.Button(cell, text=ten, width=12,
                        command=lambda c2=ch, m=ms: self.gait(c2, m)).pack(side="left")
+        # Kieng chan giu tu the — co chan 90-nghieng va 90+nghieng, nhom len
+        # giu mot nhip roi ha. Khac bai "Kieng chan" o tren (cai do dao dong
+        # lien tuc quanh 110/70).
+        kc = ttk.Frame(f2); kc.grid(row=2, column=0, columnspan=3,
+                                    sticky="w", pady=(8, 0))
+        ttk.Label(kc, text="Kiễng giữ tư thế:  số lần").pack(side="left")
+        self.k_n = tk.StringVar(value="2")
+        ttk.Spinbox(kc, from_=1, to=20, width=3, textvariable=self.k_n,
+                    justify="center").pack(side="left", padx=4)
+        ttk.Label(kc, text="độ nghiêng").pack(side="left")
+        self.k_lean = tk.StringVar(value="40")
+        ttk.Spinbox(kc, from_=5, to=70, width=3, textvariable=self.k_lean,
+                    justify="center").pack(side="left", padx=4)
+        ttk.Button(kc, text="Kiễng", width=9,
+                   command=self.tiptoe_hold).pack(side="left", padx=3)
+        ttk.Label(kc, text="40° = cổ chân 50 và 130",
+                  foreground="#777").pack(side="left", padx=(8, 0))
 
         f3 = ttk.LabelFrame(t, text="Biên độ & nhịp", padding=8)
         f3.grid(row=2, column=0, sticky="ew", pady=3)
@@ -401,6 +418,21 @@ class Dash:
             if isinstance(c, ttk.Button):
                 yield c
             yield from self._all_buttons(c)
+
+    def tiptoe_hold(self):
+        try:
+            n = max(1, min(20, int(self.k_n.get())))
+        except ValueError:
+            n = 1
+        try:
+            lean = max(5, min(70, int(self.k_lean.get())))
+        except ValueError:
+            lean = 40
+        if self.n_on < 4:
+            self.put("!!! mới có %d/4 servo bật — bấm “Bật cả 4” trước." % self.n_on)
+        # Do thuc te: moi lan ~1.5s (len 450 + giu 400 + xuong 450 + nghi 200),
+        # cong them ~600ms home() o cuoi.
+        self.cmd("K%d,%d\n" % (n, lean), n * 1550 + 900)
 
     def set_lift(self):
         try:

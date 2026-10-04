@@ -274,6 +274,25 @@ void jump() {
 
 // otto_movements.cc:514 — hai ban chan CUNG pha, nhung offset nguoc dau
 // nen than nghieng han sang mot ben roi lac qua lai.
+// Kieng chan kieu "dung mui chan": hai co chan lech NGUOC nhau that manh,
+// nhom len giu mot nhip roi ha xuong. Khac han tiptoe() cu — cai do de
+// O = {+h, -h} (co chan 110/70) va dao dong lien tuc; cai nay de {-lean,
+// +lean} (co chan 50/130), nguoc dau va manh gap doi, va co GIU tu the.
+// So 50/130 la do tren may that tim ra, khong phai bia.
+void tiptoeHold(int lean, int reps) {
+  Serial.print(F("> KIENG CHAN giu tu the, nghieng ")); Serial.println(lean);
+  int up[N]  = {90, 90, 90 - lean, 90 + lean};
+  int mid[N] = {90, 90, 90, 90};
+  for (int k = 0; k < reps; k++) {
+    moveServos(450, up);
+    delay(400);                 // giu lai cho nhin ro tu the
+    moveServos(450, mid);
+    if (k < reps - 1) delay(200);
+  }
+  home();
+}
+
+
 void tiptoe(int height, float cycles) {
   Serial.println(F("> KHIENG CHAN"));
   const int A[N]  = {0, 0, height,  height};
@@ -446,6 +465,19 @@ void loop() {
       Serial.print(F("> den tu the "));
       for (uint8_t i = 0; i < N; i++) { Serial.print(t[i]); Serial.print(i < N-1 ? ',' : ' '); }
       Serial.print(F("trong ")); Serial.print(ms); Serial.println(F("ms"));
+      break;
+    }
+
+    // K<lan>,<nghieng> — kieng chan giu tu the. Khong ghi gi thi 1 lan,
+    // nghieng 40 (tuc co chan 50 va 130). Vi du: K3,45
+    case 'K': {
+      // Doc ra bien TRUOC roi moi constrain — constrain() la macro, no tinh
+      // bieu thuc dau vao toi ba lan. Da vap mot lan o lenh G.
+      long r = Serial.parseInt();
+      long g = Serial.parseInt();
+      int reps = (r < 1) ? 1 : (int)constrain(r, 1L, 20L);
+      int lean = (g < 5) ? 40 : (int)constrain(g, 5L, 70L);
+      tiptoeHold(lean, reps);
       break;
     }
 
