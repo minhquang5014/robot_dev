@@ -579,8 +579,12 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     // (hong x co chan), khong to hop nao chua duoc — chi co cho nay.
     walk_f:   { vi:'Đi tới',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,90,90] },
     walk_b:   { vi:'Đi lùi',         T:1000, A:[30,30,30,30],  O:[0,0,5,-5],       P:[0,0,-90,-90] },
-    turn_l:   { vi:'Quay trái',      T:2000, A:[30,0,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
-    turn_r:   { vi:'Quay phải',      T:2000, A:[0,30,30,30],   O:[0,0,5,-5],       P:[0,0,-90,-90] },
+    // Hong ben kia xoay NGUOC -10 thay vi dung yen. Do bang __probeMove,
+    // quay trai 4 chu ky: ban cu (30/0, lech tam 5) duoc 238 do nhung truot
+    // ngang 69mm; ban nay duoc 311 do ma chi truot 25mm — quay gan nhu tai
+    // cho. Lech tam 10 de chan nhac 9.5mm thay vi 5mm.
+    turn_l:   { vi:'Quay trái',      T:2000, A:[30,-10,30,30], O:[0,0,10,-10],     P:[0,0,-90,-90] },
+    turn_r:   { vi:'Quay phải',      T:2000, A:[-10,30,30,30], O:[0,0,10,-10],     P:[0,0,-90,-90] },
     swing:    { vi:'Lắc lư',         T:1000, A:[0,0,20,20],    O:[0,0,10,-10],     P:[0,0,0,0] },
     updown:   { vi:'Nhún lên xuống', T:1000, A:[0,0,20,20],    O:[0,0,20,-20],     P:[0,0,-90,90] },
     tiptoe:   { vi:'Kiễng chân',     T:900,  A:[0,0,20,20],    O:[0,0,20,-20],     P:[0,0,0,0] },
@@ -930,6 +934,27 @@ window.OTTO_LAYOUT = {"oled": {"rx": 0, "ry": 0, "host": "body", "min": [-13.6, 
     theta = t; phi = f; if (r) radius = r; place();
   };
   window.__radius = function () { return radius; };
+  // Do mot bo tham so BAT KY: xoay duoc bao nhieu do, di duoc bao xa, va
+  // chan dua nhac cao nhat bao nhieu. Dung de so cac bien the cua Turn.
+  window.__probeMove = function (A, O, P, T, cycles) {
+    var keep = sim.move;
+    MOVES.__m = { vi: 'dò', T: T, A: A, O: O, P: P };
+    sim.move = '__m';
+    resetGround();
+    animateRig(0);
+    var p0 = window.__pose();
+    var lift = -99, n = Math.round(48 * cycles);
+    for (var k = 0; k <= n; k++) {
+      animateRig(k * T * cycles / n);
+      var c = window.__clearance();
+      if (c) lift = Math.max(lift, Math.max(c[0], c[1]));
+    }
+    var p1 = window.__pose();
+    sim.move = keep; delete MOVES.__m; resetGround();
+    var dy = (p1.yaw - p0.yaw) * 180 / Math.PI;
+    return { yaw: dy, dx: p1.x - p0.x, dz: p1.z - p0.z, lift: lift };
+  };
+
   // Ban chi tiet cua __probeGait: tra ve goc servo va khoang ho tung mau.
   window.__traceGait = function (hipA, ankA, ankO, n) {
     var keep = sim.move;

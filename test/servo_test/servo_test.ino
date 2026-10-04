@@ -320,9 +320,23 @@ void walk(int dir, float cycles) {
 // Quay: hai hong dao dong bien do KHAC nhau -> mot ben buoc dai hon ben kia.
 void turn(int dir, float cycles) {
   Serial.println(dir > 0 ? F("> QUAY TRAI") : F("> QUAY PHAI"));
-  int A[N] = {30, 30, 20, 20};
-  if (dir > 0) A[LEFT_LEG] = 10; else A[RIGHT_LEG] = 10;
-  const int O[N]  = {0, 0, footLift - 1, -(footLift - 1)};
+  // Do tren mo hinh 3D, quay trai 4 chu ky (viewer.html, ham __probeMove):
+  //
+  //   hong quay/dung  co chan  lech tam |  xoay   truot ngang  nhac chan
+  //      30 / 10         20        4    |  158       113mm       4.2mm   <- cu
+  //      30 /  0         30        5    |  238        69mm       5.0mm   Otto
+  //      30 /  0         30       10    |  232        76mm       9.5mm
+  //      40 /  0         30       10    |  309        36mm       9.5mm
+  //      30 / -10        30       10    |  311        25mm       9.5mm   <- nay
+  //
+  // Ban cu xoay IT nhat ma truot ngang NHIEU nhat — tuc bo cheo chu khong
+  // phai quay. Cho hong ben kia xoay NGUOC lai -10 thay vi dung yen thi
+  // thanh mot ngau luc that: xoay gap doi ma gan nhu quay tai cho.
+  // Lech tam cung dung chung footLift voi walk(), truoc day de footLift-1
+  // nen luc quay chan con nhac THAP hon luc di thang.
+  int A[N] = {30, 30, 30, 30};
+  if (dir > 0) A[LEFT_LEG] = -10; else A[RIGHT_LEG] = -10;
+  const int O[N]  = {0, 0, footLift, -footLift};
   const int ph[N] = {0, 0, -90, -90};
   oscillate(A, O, ph, cycles);
   home();
