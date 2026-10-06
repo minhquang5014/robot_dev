@@ -10,7 +10,9 @@ primary_region = 'sin'
   TTS_PROVIDER = 'xai'
   XAI_TTS_VOICE = 'eve'
   LLM_MODEL = 'qwen/qwen3.8-27b'
-  TTS_GAIN_DB = '10'
+  # 6 chu khong phai 10: do tren may that, 10 dB lam 114 mau cham tran sau
+  # khi qua Opus — chinh la tieng re. 6 dB cho 0 mau ma van to hon goc 6 dB.
+  TTS_GAIN_DB = '6'
   # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
   PUBLIC_BASE_URL = 'https://xiaozhi-esp32-server.fly.dev'
 

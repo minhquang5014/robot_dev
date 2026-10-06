@@ -125,6 +125,25 @@ class OpusEncoder:
         return [bytes(p) for p in self.ctx.encode(fr)]
 
 
+# Tran cua bo han bien, KHONG phai 1.0. Opus la codec co ton that: tin hieu
+# ra co the vot cao hon tin hieu vao mot chut. Ep sat 1.0 thi cai vot do cham
+# tran va nghe RE. Chua lai ~0.7 dB headroom la het.
+#
+# Do ngay 06/10/2026, cau "Xin chao, to la Mo...", dem so mau cham tran SAU
+# khi ma hoa Opus roi giai ma lai — tuc dung thu thiet bi nghe:
+#
+#     gain   tran 1.00        tran 0.92
+#      4 dB   0 mau           0 mau    rms -14.1
+#      6 dB   1 mau           0 mau    rms -12.1   <-- dang dung
+#      8 dB  18 mau           7 mau    rms -10.4
+#     10 dB 114 mau          42 mau    rms  -8.6   <-- muc cu, chinh la cho re
+#
+# Tieng xAI goc dinh -4.8 dBFS, SACH, khong mot mau nao cham tran. Toan bo
+# tieng re la do minh khuech dai qua tay roi nen vao bo han bien.
+KNEE = 0.6
+CEIL = 0.92
+
+
 def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
     """Keo to tieng TTS ma khong re. Tung mau mot nen dung duoc ngay tren
     luong streaming, khong phai doi het cau.
@@ -136,11 +155,11 @@ def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
     if gain_db <= 0 or not len(pcm):
         return pcm
     x = pcm.astype(np.float32) / 32768.0 * (10 ** (gain_db / 20.0))
-    knee = 0.7
     a = np.abs(x)
-    over = a > knee
-    x[over] = np.sign(x[over]) * (knee + (1 - knee) * np.tanh((a[over] - knee) / (1 - knee)))
-    return (x * 32767).astype(np.int16)
+    over = a > KNEE
+    x[over] = np.sign(x[over]) * (KNEE + (CEIL - KNEE) *
+                                  np.tanh((a[over] - KNEE) / (CEIL - KNEE)))
+    return (np.clip(x, -CEIL, CEIL) * 32767).astype(np.int16)
 
 
 class SpeechDetector:

@@ -97,7 +97,7 @@ DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
 
 # dB cong vao tieng TTS truoc khi ma hoa (audio.boost). 10 ~ day dinh xAI tu
 # -7 len sat 0 dB roi them 3 dB be mem; trung binh -20 -> ~-10 dBFS, 0% cham tran.
-GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "10"))
+GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "6"))   # xem ghi chu boost() trong audio.py
 
 
 class Session:
