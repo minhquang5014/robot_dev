@@ -185,6 +185,9 @@ class SpeechDetector:
                  max_ms: int = 15000, energy: int = 200, aggressiveness: int = 2):
         if silence_ms is None:
             silence_ms = int(os.environ.get("VAD_SILENCE_MS", "350"))
+        # San tuyet doi (chong im lang hoan toan) va he so so voi san nhieu.
+        energy = int(os.environ.get("VAD_ENERGY", str(energy)))
+        self.noise_ratio = float(os.environ.get("VAD_NOISE_RATIO", "2.5"))
         import webrtcvad
         self.vad = webrtcvad.Vad(aggressiveness)
         self.silence_ms = silence_ms
@@ -194,22 +197,52 @@ class SpeechDetector:
         self.reset()
 
     def reset(self):
+        self.hist = []            # nang luong tung khung, de do san nhieu
+        self.last_thr = 0.0
+        self.voiced_frames = 0
         self.speech_ms = 0
         self.quiet_ms = 0
         self.total_ms = 0
         self.started = False
+
+    def stats(self) -> str:
+        """Mot dong de ghi log — nhin la biet nguong co hop voi mic khong."""
+        if not self.hist:
+            return "chua co khung nao"
+        h = np.array(self.hist)
+        return ("nang luong khung: san %.0f  trung vi %.0f  dinh %.0f  |  "
+                "nguong dung %.0f  |  %d/%d khung tinh la tieng noi"
+                % (np.percentile(h, 25), np.median(h), h.max(),
+                   self.last_thr, self.voiced_frames, len(h)))
 
     def feed(self, pcm: np.ndarray) -> bool:
         """Nem vao PCM (bao nhieu cung duoc). True = nguoi noi da dut cau."""
         for i in range(0, len(pcm) - VAD_FRAME_SAMPLES + 1, VAD_FRAME_SAMPLES):
             f = pcm[i:i+VAD_FRAME_SAMPLES]
             self.total_ms += VAD_FRAME_MS
-            loud = float(np.abs(f.astype(np.float32)).mean()) >= self.energy
+
+            # NGUONG THICH NGHI, khong phai so co dinh.
+            #
+            # Truoc day so voi hang so 200 (chi -44 dBFS). Doc log Fly ngay
+            # 06/10: luot nao cung dung 250 goi = 15.0s, tuc LUON cham tran
+            # max_ms chu VAD CHUA BAO GIO thay im lang. Tieng on phong vuot
+            # 200 de dang nen khung nao cung bi tinh la dang noi, quiet_ms
+            # bi dat lai lien tuc. Ha silence_ms xuong 350 vi the vo tac dung.
+            #
+            # Gio do san nhieu ngay trong luc nghe (phan vi 25 cua cac khung
+            # da qua) roi doi tieng noi phai vuot hon no NOISE_RATIO lan.
+            e = float(np.abs(f.astype(np.float32)).mean())
+            self.hist.append(e)
+            floor = float(np.percentile(self.hist[-300:], 25)) if len(self.hist) >= 25 else 0.0
+            thr = max(self.energy, floor * self.noise_ratio)
+            self.last_thr = thr
+            loud = e >= thr
             try:
                 voiced = loud and self.vad.is_speech(f.tobytes(), SAMPLE_RATE)
             except Exception:
                 voiced = loud
             if voiced:
+                self.voiced_frames += 1
                 self.speech_ms += VAD_FRAME_MS
                 self.quiet_ms = 0
                 if self.speech_ms >= self.min_speech_ms:

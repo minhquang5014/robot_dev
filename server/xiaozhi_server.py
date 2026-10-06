@@ -175,6 +175,10 @@ class Session:
         # nghia la rot goi hoac khung khac 60 ms.
         log.info("  listen STOP%s: %d goi, %d byte, %.1f s thuc te, %.1f s theo so goi x 60ms",
                  f" ({reason})" if reason else "", self.frames, self.bytes, secs, self.frames * 0.06)
+        # In luon so lieu VAD. Khong co dong nay thi khong biet nguong co hop
+        # voi mic khong — da tung mat cong doan mo: moi luot deu dung 15.0s
+        # vi cham tran max_ms, ma log cu chi noi "VAD thay dut cau".
+        log.info("  VAD: %s", self.det.stats())
 
     async def abort(self, reason: str = ""):
         """Nguoi dung cat loi: huy tac vu tra loi dang chay."""
