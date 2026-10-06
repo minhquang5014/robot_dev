@@ -14,4 +14,5 @@ av>=12.0
 
 # Phat hien nguoi noi dut cau. Che do `auto` cua firmware gui audio lien tuc,
 # server phai tu quyet dinh luc nao het cau.
-webrtcvad>=2.0
+# ban -wheels co san wheel cho moi nen tang (ca Docker slim), khoi phai co gcc
+webrtcvad-wheels>=2.0.14

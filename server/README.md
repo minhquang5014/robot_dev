@@ -117,6 +117,31 @@ phải cho qua `AudioResampler`.
 > bạn. `XZ_TOKEN` được gửi kèm trong header, nhưng chính endpoint OTA lại trả token
 > đó cho bất kỳ ai hỏi — nên nó **không** phải cơ chế bảo vệ thật.
 
+## Deploy lên Fly.io
+
+App `xiaozhi-esp32-server` (org `mini-robo-team`), trùng địa chỉ `CONFIG_OTA_URL` trong
+firmware nên deploy xong **không cần nạp lại ESP32**.
+
+```bash
+cd server
+fly secrets set GROQ_API_KEY=... XAI_API_KEY=... -a xiaozhi-esp32-server   # lần đầu
+fly deploy
+curl https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/       # phải thấy JSON có "websocket"
+.venv/bin/python fake_device.py https://xiaozhi-esp32-server.fly.dev cau-hoi.mp3
+```
+
+- Một cổng cho cả OTA lẫn WebSocket, cùng đi qua 443 (`fly.toml`).
+- Máy **luôn bật** (`min_machines_running = 1`): robot luôn nghe giữ kết nối suốt, để Fly
+  tự tắt thì lần nối lại mất ~10 giây khởi động.
+- Tham số không bí mật (giọng, model, `TTS_GAIN_DB`) nằm trong `[env]` của `fly.toml`.
+
+**Âm lượng** — `TTS_GAIN_DB`, mặc định 10. Tiếng xAI gốc đỉnh -7 dBFS, trung bình -20 dBFS,
+nghe nhỏ hẳn server tenclass trên cùng loa. `audio.boost()` cộng gain rồi bẻ mềm phần
+vượt 0.7 nên không rè; đo được trung bình -8 dBFS, 0,01% mẫu chạm trần.
+
+**24 kHz** — server gửi tiếng xuống đúng tần số loa của board. Gửi 16 kHz thì firmware
+phải tự đổi tần số và log `resampling may cause distortion`.
+
 ## Giao thức xiaozhi — đọc từ firmware 2.5.0
 
 Ghi lại để khỏi phải đọc lại code. Đường dẫn tính từ `xiaozhi-esp32/main/`.

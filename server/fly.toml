@@ -1,0 +1,38 @@
+app = 'xiaozhi-esp32-server'
+primary_region = 'sin'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+# Khoá API đặt bằng secret, KHÔNG ghi ở đây:
+#   fly secrets set GROQ_API_KEY=... XAI_API_KEY=...
+[env]
+  TTS_PROVIDER = 'xai'
+  XAI_TTS_VOICE = 'eve'
+  LLM_MODEL = 'qwen/qwen3.8-27b'
+  TTS_GAIN_DB = '10'
+  # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
+  PUBLIC_BASE_URL = 'https://xiaozhi-esp32-server.fly.dev'
+
+# Một cổng cho cả OTA (https) lẫn WebSocket (wss), cùng đi qua 443:
+#   https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/
+#   wss://xiaozhi-esp32-server.fly.dev/xiaozhi/v1/
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Robot luôn nghe giữ kết nối suốt — để máy tự tắt thì lần nối lại mất ~10 giây khởi động.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = 'GET'
+    path = '/xiaozhi/ota/'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

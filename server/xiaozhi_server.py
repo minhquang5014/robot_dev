@@ -95,6 +95,10 @@ async def handle_ota(request: web.Request) -> web.Response:
 
 DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
 
+# dB cong vao tieng TTS truoc khi ma hoa (audio.boost). 10 ~ day dinh xAI tu
+# -7 len sat 0 dB roi them 3 dB be mem; trung binh -20 -> ~-10 dBFS, 0% cham tran.
+GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "10"))
+
 
 class Session:
     """Mot ket noi WebSocket: gom audio nguoi noi, chay pipeline, phat tra loi."""
@@ -116,6 +120,7 @@ class Session:
         self.history = []             # ngu canh hoi thoai, giu trong ket noi
         self.task = None              # tac vu tra loi dang chay
         self.turn = 0
+        self.cleanup = []             # tep tam cua luot dang chay
 
     # ---------------------------------------------------------- nghe
     def start_listen(self, mode: str):
@@ -194,11 +199,15 @@ async def respond(sess: Session, pcm: np.ndarray):
     stem = os.path.join(OUT_DIR, f"{time.strftime('%H%M%S')}_turn{sess.turn}")
     # Ogg chu khong phai WAV: 8 KB thay vi 118 KB, STT tu 1324 xuong 377 ms.
     src = audio.write_ogg(pcm, stem + ".ogg")
+    # Che do luon nghe tao mot tep moi luot, ke ca luot chi co tieng on. Khong
+    # xoa thi o dia server day dan.
+    if not DUMP_OPUS:
+        sess.cleanup.append(src)
     if DUMP_OPUS:
         audio.write_wav(pcm, stem + ".wav")     # de nghe lai khi soi loi
 
     turn = pipeline.Turn()
-    enc = audio.OpusEncoder()
+    enc = audio.OpusEncoder(rate=audio.OUT_RATE)
     pacer = audio.Pacer()
     started = False
     carry = b""          # byte le con du giua hai chunk HTTP
@@ -215,7 +224,8 @@ async def respond(sess: Session, pcm: np.ndarray):
 
     try:
         gen = pipeline.run_turn_stream(turn, audio_path=src, history=sess.history,
-                                       on_emotion=on_emotion, pcm=True)
+                                       on_emotion=on_emotion, pcm=True,
+                                       pcm_rate=audio.OUT_RATE)
         async with contextlib.aclosing(gen):
             async for chunk in gen:
                 if not started:
@@ -226,7 +236,7 @@ async def respond(sess: Session, pcm: np.ndarray):
                                         "text": turn.reply})
                     log.info("  >> stt=%r", turn.transcript)
                     log.info("  >> tra loi [%s] %r", turn.emotion, turn.reply)
-                # TTS tra PCM 16 kHz (pcm=True) -> ma hoa thang sang Opus.
+                # TTS tra PCM 24 kHz (pcm=True) -> ma hoa thang sang Opus.
                 #
                 # Chunk HTTP KHONG dam bao chan byte: mot mau int16 co the bi
                 # cat doi giua hai chunk. Gap that — 3/5 luot chet voi
@@ -239,9 +249,15 @@ async def respond(sess: Session, pcm: np.ndarray):
                     carry = b""
                 if not buf:
                     continue
-                samples = np.frombuffer(buf, dtype=np.int16)
+                samples = audio.boost(np.frombuffer(buf, dtype=np.int16), GAIN_DB)
                 await send_pkts(enc.encode(samples))
             await send_pkts(enc.flush())
+    except pipeline.NoSpeech as e:
+        # Tieng on hoac Whisper bia. Chua gui gi xuong nen thiet bi van dang o
+        # trang thai nghe va se KHONG gui listen start lan nua -> server tu nghe tiep.
+        log.info("  bo qua: khong phai cau noi (%r)", str(e)[:60])
+        sess.start_listen(sess.mode)
+        return
     except asyncio.CancelledError:
         with contextlib.suppress(Exception):
             await ws.send_json({"type": "tts", "state": "stop"})
@@ -251,7 +267,14 @@ async def respond(sess: Session, pcm: np.ndarray):
         with contextlib.suppress(Exception):
             if started:
                 await ws.send_json({"type": "tts", "state": "stop"})
+            else:
+                sess.start_listen(sess.mode)
         return
+    finally:
+        for f in sess.cleanup:
+            with contextlib.suppress(OSError):
+                os.remove(f)
+        sess.cleanup.clear()
 
     await ws.send_json({"type": "tts", "state": "stop"})
     sess.history = turn.history[-12:]      # giu 6 luot gan nhat
@@ -302,9 +325,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                     "type": "hello",
                     "transport": "websocket",
                     "session_id": session.id,
-                    # Tra dung tham so ESP32 gui len. Buoc noi TTS se doi sang
-                    # tan so dau ra cua board (24 kHz) khi thuc su phat tieng.
-                    "audio_params": {"format": "opus", "sample_rate": 16000,
+                    # Tan so tieng server GUI XUONG; firmware mo decoder theo so nay.
+                    "audio_params": {"format": "opus", "sample_rate": audio.OUT_RATE,
                                      "channels": 1, "frame_duration": 60},
                 }
                 await ws.send_json(reply)
@@ -348,8 +370,8 @@ def make_app() -> web.Application:
 def main():
     load_dotenv(os.path.join(HERE, ".env"))
     p = argparse.ArgumentParser(description="Server giao thuc xiaozhi")
-    p.add_argument("--port", type=int, default=8000)
-    p.add_argument("--host", default="127.0.0.1",
+    p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    p.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"),
                    help="127.0.0.1 khi thu tren may ca nhan hoac sau reverse proxy; "
                         "0.0.0.0 tren VPS de ESP32 goi thang vao")
     args = p.parse_args()

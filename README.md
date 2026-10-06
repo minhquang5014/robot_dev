@@ -52,8 +52,9 @@ Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định đi
 4. **Luôn nghe, không cần bấm nút** — `CONFIG_ALWAYS_LISTENING=y`, `main/application.cc`.
 
    Rảnh ~5 giây là tự mở hội thoại, rớt kết nối thì tự nối lại (chờ giãn dần 5 → 60 giây).
-   Bấm BOOT khi đang nghe để tạm dừng, bấm lại để nghe tiếp. Chi tiết và cái giá phải
-   trả: [fly-server/README.md](fly-server/README.md#luôn-nghe).
+   Bấm BOOT khi đang nghe để tạm dừng, bấm lại để nghe tiếp. Cái giá: robot trả lời
+   **mọi** câu nó nghe được (người khác nói, TV), và mỗi câu đều tốn API. Server lọc bớt
+   câu Whisper bịa ra từ tiếng ồn (`pipeline.is_noise_transcript`).
 
 5. **Server tự host** — `CONFIG_OTA_URL` trỏ về `https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/`
    thay vì `api.tenclass.net`. Không cần đăng ký mã trên xiaozhi.me nữa.
@@ -91,7 +92,7 @@ idf.py -p /dev/cu.usbserial-XXXX flash monitor
 > prebuilt của `esp_audio_codec` bị cắt đôi ở dấu cách. Clone vào chỗ khác, ví dụ `~/esp/robot_dev`.
 
 Sau khi nạp, thiết bị phát hotspot `Xiaozhi-XXXX`. Nối điện thoại vào, mở
-`http://192.168.4.1` để khai báo WiFi (chỉ 2.4GHz). Với server trong `fly-server/`
+`http://192.168.4.1` để khai báo WiFi (chỉ 2.4GHz). Với server trong `server/`
 thì thiết bị tự nói chuyện luôn, không cần đăng ký mã tại xiaozhi.me.
 
 ## Script tiện ích (`scripts/`)
@@ -140,18 +141,14 @@ Firmware nối ra ngoài theo **hai tầng**:
 
 ### Tự host
 
-Có ba lựa chọn:
+**[`server/`](server/README.md) — server duy nhất của repo**, tự viết, deploy lên Fly.io
+bằng `fly deploy` ngay trong thư mục đó. Groq Whisper + `qwen3.8-27b` + xAI TTS, tiếng
+gửi xuống 24 kHz đúng tần số loa, có lọc câu ảo giác cho chế độ luôn nghe.
+**Chưa có:** MCP — robot chưa đi lại bằng giọng nói được (`self.otto.action` trong firmware).
 
-- **[`fly-server/`](fly-server/README.md) — đang chạy thật.** xiaozhi-esp32-server kèm bản vá,
-  deploy lên Fly.io. ESP32 trong repo này đã nói chuyện được qua nó ngày 22/09/2026:
-  Groq Whisper + `qwen3.8-27b` + EdgeTTS tiếng Việt, luôn nghe, lọc câu ảo giác của Whisper.
-- **`server/` trong repo này** — tự viết, gọn: đường ống Groq + EdgeTTS đã chạy và đo
-  thật, server giao thức xiaozhi đang ở **Mốc 0** (bắt tay được với thiết bị giả lập,
-  chưa có ESP32 thật gọi vào, chưa nối AI). Chi tiết và bảng giao thức đọc từ firmware:
-  [server/README.md](server/README.md).
-- [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) — dự án
-  cộng đồng, đầy đủ tính năng, chạy Docker. Chạy được với firmware 2.5.0 trong repo này
-  (xem `fly-server/`); đo thực tế chỉ dùng ~145 MB RAM khi chỉ gọi API.
+Trước 06/10/2026 repo còn `fly-server/`: bọc [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server)
+(dự án cộng đồng, đủ MCP) kèm bản vá. Đã bỏ vì chậm (đo 06/10: ~15 s tới câu trả lời đầu)
+và hay dính mặc định tiếng Trung. Xem lại trong lịch sử git nếu cần.
 
 **Đổi server không cần nạp lại firmware.** Firmware đọc `ota_url` lưu trong NVS trước,
 trống mới dùng `CONFIG_OTA_URL` (`main/ota.cc:48-55`). Đặt được qua trang cấu hình WiFi

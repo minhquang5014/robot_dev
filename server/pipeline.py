@@ -125,6 +125,27 @@ class PipelineError(RuntimeError):
     pass
 
 
+class NoSpeech(PipelineError):
+    """STT khong ra cau nao dang tra loi — rong, hoac Whisper bia tu tieng on."""
+
+
+# Che do luon nghe gui ca doan chi co tieng on, Whisper hay "bia" ra cau cuoi
+# video YouTube. Gap that tren robot (fly-server, 22/09/2026). Tai hien duoc
+# bang 3 giay nhieu trang; no_speech_prob cua Groq tra 0 cho chinh doan do nen
+# KHONG loc theo xac suat duoc, phai loc theo cum tu.
+HALLUCINATION_PHRASES = (
+    "cảm ơn các bạn đã theo dõi", "hẹn gặp lại các bạn", "không bỏ lỡ những video",
+    "đăng ký kênh", "subscribe", "ghiền mì gõ", "thanks for watching",
+)
+
+
+def is_noise_transcript(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if len(t) < 2:
+        return True
+    return any(p in t for p in HALLUCINATION_PHRASES)
+
+
 def _groq_headers() -> dict:
     key = os.environ.get("GROQ_API_KEY", "").strip()
     if not key:
@@ -352,7 +373,8 @@ def _xai_headers() -> dict:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
-def _xai_tts_request(text: str, voice: str = None, pcm: bool = False) -> dict:
+def _xai_tts_request(text: str, voice: str = None, pcm: bool = False,
+                      pcm_rate: int = 16000) -> dict:
     body = {
         "text": text,
         "language": "vi",
@@ -364,16 +386,17 @@ def _xai_tts_request(text: str, voice: str = None, pcm: bool = False) -> dict:
     if pcm:
         # Firmware can Opus 16kHz mono. Lay PCM thang thi chi con mot buoc ma
         # hoa; lay MP3 thi phai giai ma roi ma hoa lai.
-        body["output_format"] = {"codec": "pcm", "sample_rate": 16000}
+        body["output_format"] = {"codec": "pcm", "sample_rate": pcm_rate}
     return body
 
 
-async def _tts_xai_stream(text: str, voice: str = None, pcm: bool = False):
+async def _tts_xai_stream(text: str, voice: str = None, pcm: bool = False,
+                          pcm_rate: int = 16000):
     """xAI TTS. Do ngay 27/09/2026: byte dau ~215ms, khong doi theo do dai cau;
     ~20 luot khong lan nao hong. EdgeTTS cung phep do: 522ms va hong 1/10."""
     def _post():
         return _XAI.post(f"{XAI_BASE}/tts", headers=_xai_headers(),
-                         json=_xai_tts_request(text, voice, pcm),
+                         json=_xai_tts_request(text, voice, pcm, pcm_rate),
                          stream=True, timeout=90)
 
     r = await asyncio.to_thread(_post)
@@ -395,14 +418,15 @@ async def _tts_xai_stream(text: str, voice: str = None, pcm: bool = False):
 
 
 async def text_to_speech_stream(text: str, voice: str = None, rate: str = None,
-                                pitch: str = None, pcm: bool = False):
+                                pitch: str = None, pcm: bool = False,
+                                pcm_rate: int = 16000):
     """Async generator: tra ve tung chunk audio ngay khi co.
 
     TTS_PROVIDER chon nha cung cap: "xai" (mac dinh) hoac "edge".
     """
     provider = os.environ.get("TTS_PROVIDER", "xai").strip().lower()
     if provider == "xai":
-        async for chunk in _tts_xai_stream(text, voice, pcm):
+        async for chunk in _tts_xai_stream(text, voice, pcm, pcm_rate):
             yield chunk
         return
     async for chunk in _tts_edge_stream(text, voice, rate, pitch):
@@ -506,7 +530,8 @@ def run_turn(audio_path: str, out_path: str, history: list = None) -> Turn:
 
 
 async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
-                          history: list = None, on_emotion=None, pcm: bool = False):
+                          history: list = None, on_emotion=None, pcm: bool = False,
+                          pcm_rate: int = 16000):
     """Async generator: dien dan `turn`, yield chunk audio ngay khi co.
 
     `on_emotion(ten)` duoc goi NGAY khi tag cam xuc ve tu LLM — khoang 300ms,
@@ -523,8 +548,8 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
         t0 = time.perf_counter()
         turn.transcript = await asyncio.to_thread(speech_to_text, audio_path)
         turn.ms_stt = int((time.perf_counter() - t0) * 1000)
-        if not turn.transcript:
-            raise PipelineError("STT tra ve chuoi rong — kiem tra lai file am thanh.")
+        if is_noise_transcript(turn.transcript):
+            raise NoSpeech(turn.transcript)
     else:
         turn.transcript = text
 
@@ -559,7 +584,7 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
     # cho moi lan goi va gan nhu khong doi theo do dai, nen cat lam hai khuc
     # chi to them ~215ms va de ra khoang lang giua cau.
     t0 = time.perf_counter()
-    tts = text_to_speech_stream(turn.reply, pcm=pcm)
+    tts = text_to_speech_stream(turn.reply, pcm=pcm, pcm_rate=pcm_rate)
     try:
         async for chunk in tts:
             if not turn.ms_first_audio:

@@ -31,6 +31,9 @@ log = logging.getLogger("xz.audio")
 SAMPLE_RATE = 16000
 FRAME_MS = 60
 FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000      # 960
+# Tan so tieng server gui XUONG. Board nay phat o 24 kHz; gui 16 kHz thi firmware
+# phai tu doi tan so va bao "resampling may cause distortion" (log 06/10/2026).
+OUT_RATE = 24000
 VAD_FRAME_MS = 30                                   # webrtcvad chi nhan 10/20/30
 VAD_FRAME_SAMPLES = SAMPLE_RATE * VAD_FRAME_MS // 1000
 
@@ -64,13 +67,15 @@ class OpusDecoder:
 
 
 class OpusEncoder:
-    """PCM int16 mono 16 kHz -> goi Opus 60 ms."""
+    """PCM int16 mono -> goi Opus 60 ms."""
 
-    def __init__(self, bitrate: int = 24000):
+    def __init__(self, bitrate: int = 24000, rate: int = SAMPLE_RATE):
         import av
         self._av = av
+        self.rate = rate
+        self.frame = rate * FRAME_MS // 1000
         ctx = av.codec.CodecContext.create("libopus", "w")
-        ctx.sample_rate = SAMPLE_RATE
+        ctx.sample_rate = rate
         ctx.format = "s16"
         ctx.layout = "mono"
         ctx.bit_rate = bitrate
@@ -90,9 +95,9 @@ class OpusEncoder:
         buf = np.concatenate([self._tail, pcm]) if len(self._tail) else pcm
         pkts = []
         i = 0
-        while i + FRAME_SAMPLES <= len(buf):
-            pkts += self._one(buf[i:i+FRAME_SAMPLES])
-            i += FRAME_SAMPLES
+        while i + self.frame <= len(buf):
+            pkts += self._one(buf[i:i+self.frame])
+            i += self.frame
         self._tail = buf[i:].copy()
         return pkts
 
@@ -100,7 +105,7 @@ class OpusEncoder:
         """Goi khi het cau: dem im lang cho du khung cuoi roi dong encoder."""
         pkts = []
         if len(self._tail):
-            pad = np.zeros(FRAME_SAMPLES - len(self._tail), np.int16)
+            pad = np.zeros(self.frame - len(self._tail), np.int16)
             pkts += self._one(np.concatenate([self._tail, pad]))
             self._tail = np.zeros(0, np.int16)
         try:
@@ -113,10 +118,28 @@ class OpusEncoder:
     def _one(self, chunk: np.ndarray) -> list:
         fr = self._av.AudioFrame.from_ndarray(
             np.ascontiguousarray(chunk).reshape(1, -1), format="s16", layout="mono")
-        fr.sample_rate = SAMPLE_RATE
+        fr.sample_rate = self.rate
         fr.pts = self._pts
-        self._pts += FRAME_SAMPLES
+        self._pts += self.frame
         return [bytes(p) for p in self.ctx.encode(fr)]
+
+
+def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
+    """Keo to tieng TTS ma khong re. Tung mau mot nen dung duoc ngay tren
+    luong streaming, khong phai doi het cau.
+
+    Do 06/10/2026: tieng xAI dinh chi -7,1 dBFS, trung binh -20,4 dBFS — nho
+    han han server tenclass tren cung loa. Duoi 0.7 giu tuyen tinh, tren do
+    be cong mem (tanh) ve 1.0 thay vi cat cut.
+    """
+    if gain_db <= 0 or not len(pcm):
+        return pcm
+    x = pcm.astype(np.float32) / 32768.0 * (10 ** (gain_db / 20.0))
+    knee = 0.7
+    a = np.abs(x)
+    over = a > knee
+    x[over] = np.sign(x[over]) * (knee + (1 - knee) * np.tanh((a[over] - knee) / (1 - knee)))
+    return (x * 32767).astype(np.int16)
 
 
 class SpeechDetector:
