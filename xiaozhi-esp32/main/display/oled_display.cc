@@ -639,6 +639,59 @@ void OledDisplay::SetEmotion(const char* emotion) {
     }
 }
 
+void OledDisplay::ShowWifiConfig(const char* ssid, const char* url) {
+    DisplayLockGuard lock(this);
+
+    // Tat mat di. O che do nay nguoi dung can DOC huong dan, con doi mat thi
+    // vua choan cho vua lam tuong robot dang chay binh thuong.
+    if (eyes_area_) lv_obj_add_flag(eyes_area_, LV_OBJ_FLAG_HIDDEN);
+    if (eye_blink_timer_) lv_timer_pause(eye_blink_timer_);
+
+    // Thong bao "Ket noi den <wifi cu>..." duoc hen gio 30 GIAY (xem
+    // application.cc, NetworkEvent::Connecting). Vao che do cau hinh o giay
+    // 60 thi cai hen tu giay 45 van con song toi giay 75 va de len. Phai tat
+    // tay ca nhan lan hen gio, khong thi nguoi dung tuong no dang ket noi.
+    esp_timer_stop(notification_timer_);
+    if (notification_label_) lv_obj_add_flag(notification_label_, LV_OBJ_FLAG_HIDDEN);
+    if (status_label_) lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+
+    auto screen = lv_screen_active();
+    if (wifi_cfg_ == nullptr) {
+        wifi_cfg_ = lv_obj_create(screen);
+        lv_obj_remove_style_all(wifi_cfg_);
+        lv_obj_set_size(wifi_cfg_, LV_HOR_RES, LV_VER_RES);
+        lv_obj_set_style_bg_color(wifi_cfg_, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(wifi_cfg_, LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_all(wifi_cfg_, 1, 0);
+        lv_obj_set_scrollbar_mode(wifi_cfg_, LV_SCROLLBAR_MODE_OFF);
+
+        lv_obj_t* lbl = lv_label_create(wifi_cfg_);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(lbl, LV_HOR_RES - 2);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_black(), 0);
+        lv_obj_center(lbl);
+        wifi_cfg_label_ = lbl;
+    }
+
+    // Dung LAI cac chuoi da co trong goi ngon ngu. Phong chu chi chua glyph
+    // cua nhung ky tu that su xuat hien trong locale, nen tu che cau tieng
+    // Viet moi la de ra o vuong.
+    //
+    // Man chi cao 64px, phong chu ~14px -> vua 4 hang. Tieu de da chiem 2
+    // hang vi no dai 21 ky tu. Nen BO tien to "Diem phat song: " (28 ky tu,
+    // tu no da la 2 hang) — chi con ten mang va dia chi, van du hieu.
+    std::string txt = Lang::Strings::WIFI_CONFIG_MODE;
+    txt += "\n";
+    txt += (ssid ? ssid : "?");
+    txt += "\n";
+    txt += (url ? url : "?");
+
+    lv_label_set_text(wifi_cfg_label_, txt.c_str());
+    lv_obj_remove_flag(wifi_cfg_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(wifi_cfg_);
+}
+
 void OledDisplay::SetTheme(Theme* theme) {
     DisplayLockGuard lock(this);
 

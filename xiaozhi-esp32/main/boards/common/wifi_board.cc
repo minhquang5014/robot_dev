@@ -184,6 +184,12 @@ void WifiBoard::StartWifiConfigMode() {
         hint += wifi_manager.GetApWebUrl();
 
         Application::GetInstance().Alert(Lang::Strings::WIFI_CONFIG_MODE, hint.c_str(), "gear", Lang::Sounds::OGG_WIFICONFIG);
+        // Alert chi dat status/chat_message — tren man OLED 128x64 hai cai do
+        // deu bi an, nen nguoi dung van thay thong bao "Ket noi den <wifi
+        // cu>..." con treo (no duoc hen gio 30 giay). Ve hang huong dan rieng,
+        // dang truc tiep, giu nguyen den khi khoi dong lai.
+        Board::GetInstance().GetDisplay()->ShowWifiConfig(
+            wifi_manager.GetApSsid().c_str(), wifi_manager.GetApWebUrl().c_str());
     });
 #elif CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING
     auto &blufi = Blufi::GetInstance();

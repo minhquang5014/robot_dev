@@ -50,6 +50,11 @@ public:
     virtual Theme* GetTheme() { return current_theme_; }
     virtual void UpdateStatusBar(bool update_all = false);
     virtual void SetPowerSaveMode(bool on);
+    // Che do cau hinh Wi-Fi: man hinh nen hien HUONG DAN cho nguoi doc, chu
+    // khong phai mat robot. Mac dinh khong lam gi — bo nao muon thi override.
+    virtual void ShowWifiConfig(const char* ssid, const char* url) {
+        (void)ssid; (void)url;
+    }
     virtual bool AddTextGlyphs(const std::vector<TextGlyph>& glyphs, uint8_t bpp) { return false; }
     virtual void ClearTextGlyphs() {}
     virtual void SetEmojiCollection(std::shared_ptr<EmojiCollection>) {}

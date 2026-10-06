@@ -25,6 +25,8 @@ private:
     // bo góc đối xứng, đổi kích thước/độ bo/góc nghiêng theo cảm xúc, có
     // chuyển động mượt (LVGL style transition) và tự chớp mắt định kỳ.
     lv_obj_t* eyes_area_ = nullptr;
+    lv_obj_t* wifi_cfg_ = nullptr;        // tam huong dan cau hinh Wi-Fi
+    lv_obj_t* wifi_cfg_label_ = nullptr;
     lv_obj_t* left_eye_ = nullptr;
     lv_obj_t* right_eye_ = nullptr;
     lv_timer_t* eye_blink_timer_ = nullptr;
@@ -65,6 +67,7 @@ public:
     virtual void SetTheme(Theme* theme) override;
     virtual bool IsMonochrome() const override { return true; }
     void SetPowerSaveMode(bool on) override;
+    void ShowWifiConfig(const char* ssid, const char* url) override;
 };
 
 #endif  // OLED_DISPLAY_H
