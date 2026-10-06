@@ -1,0 +1,454 @@
+diff --git a/main/xiaozhi-server/core/connection.py b/main/xiaozhi-server/core/connection.py
+index 15ac1364..0343b908 100644
+--- a/main/xiaozhi-server/core/connection.py
++++ b/main/xiaozhi-server/core/connection.py
+@@ -6,6 +6,7 @@ import re
+ import uuid
+ import time
+ import queue
++import random
+ import asyncio
+ import threading
+ import traceback
+@@ -167,6 +168,9 @@ class ConnectionHandler:
+ 
+         # tts相关变量
+         self.sentence_id = None
++        # đã gửi câu đệm ("để mình tra thử nhé") cho lượt hội thoại hiện tại chưa —
++        # reset ở đầu mỗi lượt trong chat(), không phải mỗi lần gọi hàm (xem chat())
++        self.filler_sent_this_turn = False
+         # 处理TTS响应没有文本返回
+         self.tts_MessageText = ""
+ 
+@@ -1052,6 +1056,36 @@ class ConnectionHandler:
+         # 更新系统prompt至上下文
+         self.dialogue.update_system_message(self.prompt)
+ 
++    # Câu hỏi/yêu cầu bình thường thì trả lời ngắn (max_tokens thấp, cấu hình ở
++    # LLM.max_tokens); riêng khi người dùng CHỦ ĐỘNG xin kể chuyện/giải thích dài,
++    # nới giới hạn ra để không bị cắt cụt giữa chừng. Chỉ set khi phát hiện được
++    # ý định rõ ràng — không phải giới hạn mặc định cho mọi câu.
++    LONG_RESPONSE_KEYWORDS = (
++        "kể chuyện", "kể cho", "kể một câu chuyện", "kể truyện",
++        "kể chi tiết", "nói chi tiết", "giải thích chi tiết", "giải thích kỹ",
++        "nói dài", "kể dài", "dài hơn", "kể tiếp", "kể nốt",
++    )
++
++    # Gọi công cụ tốn thời gian (tìm kiếm web, tra lịch...) có thể mất vài giây
++    # tới hàng chục giây tuỳ tình trạng dịch vụ ngoài. Nói ngay 1 câu đệm ngắn
++    # trong lúc chờ, để người nghe biết robot đang xử lý chứ không phải bị treo.
++    # Không đệm cho 2 tool "ảo" này: direct_answer chỉ là cách model trả lời
++    # thẳng (không gọi gì tốn thời gian), handle_exit_intent là đóng hội thoại.
++    TOOL_FILLER_PHRASES = (
++        "Để mình tra thử nhé.",
++        "Chờ mình một chút nha.",
++        "Mình xem thử cái này đã.",
++        "Đợi mình một xíu nhé.",
++        "Để mình kiểm tra đã nha.",
++    )
++    NO_FILLER_TOOLS = {"direct_answer", "handle_exit_intent"}
++
++    def _wants_long_response(self, text) -> bool:
++        if not text:
++            return False
++        lowered = text.lower()
++        return any(kw in lowered for kw in self.LONG_RESPONSE_KEYWORDS)
++
+     def chat(self, query, depth=0):
+         # 保存当前任务的sentence_id到局部变量，避免被新任务覆盖
+         current_sentence_id = None
+@@ -1063,6 +1097,10 @@ class ConnectionHandler:
+         if depth == 0:
+             current_sentence_id = str(uuid.uuid4().hex)
+             self.sentence_id = current_sentence_id  # 更新共享属性
++            # Reset ở ĐÂY (mỗi lượt hội thoại mới), không phải mỗi lần gọi chat() —
++            # hàm này tự gọi đệ quy (depth+1) mỗi khi model gọi tool tiếp, nếu reset
++            # theo mỗi lần gọi hàm thì câu đệm bị gửi lặp lại ở từng vòng đệ quy.
++            self.filler_sent_this_turn = False
+             self.dialogue.put(Message(role="user", content=query))
+             self.tts.tts_text_queue.put(
+                 TTSMessageDTO(
+@@ -1126,6 +1164,17 @@ class ConnectionHandler:
+                 self.system_introduced_speakers.add(cs)
+                 speaker_for_system = cs
+ 
++            # depth == 0: query là câu người dùng vừa nói. depth > 0 (đệ quy sau
++            # tool call) thì query=None, không đánh giá lại — tránh nới giới hạn
++            # nhầm ở bước tổng hợp câu trả lời cuối chỉ vì câu hỏi gốc có từ khóa.
++            llm_kwargs = {}
++            if depth == 0 and self._wants_long_response(query):
++                long_max_tokens = self.config.get("long_response_max_tokens", 450)
++                llm_kwargs["max_tokens"] = long_max_tokens
++                self.logger.bind(tag=TAG).debug(
++                    f"Phát hiện yêu cầu trả lời dài, nới max_tokens={long_max_tokens}"
++                )
++
+             if self.intent_type == "function_call" and functions is not None:
+                 # 使用支持functions的streaming接口
+                 llm_responses = self.llm.response_with_functions(
+@@ -1134,6 +1183,7 @@ class ConnectionHandler:
+                         memory_str, self.config.get("voiceprint", {}), speaker_for_system
+                     ),
+                     functions=functions,
++                    **llm_kwargs,
+                 )
+             else:
+                 llm_responses = self.llm.response(
+@@ -1141,6 +1191,7 @@ class ConnectionHandler:
+                     self.dialogue.get_llm_dialogue_with_memory(
+                         memory_str, self.config.get("voiceprint", {}), speaker_for_system
+                     ),
++                    **llm_kwargs,
+                 )
+         except Exception as e:
+             self.logger.bind(tag=TAG).error(f"LLM 处理出错 {query}: {e}")
+@@ -1172,6 +1223,26 @@ class ConnectionHandler:
+                         tool_call_flag = True
+                         self._merge_tool_calls(tool_calls_list, tools_call)
+ 
++                    # Vừa biết tên tool (thường có ngay từ chunk đầu của tool_calls),
++                    # nếu là tool thật (không phải direct_answer/handle_exit_intent)
++                    # thì nói ngay 1 câu đệm — tool có thể mất vài giây tới hàng
++                    # chục giây tuỳ dịch vụ ngoài, câu đệm giúp người nghe biết
++                    # robot đang xử lý chứ không phải bị treo.
++                    if not self.filler_sent_this_turn:
++                        for tc in tool_calls_list:
++                            tc_name = tc.get("name")
++                            if tc_name and tc_name not in self.NO_FILLER_TOOLS:
++                                self.filler_sent_this_turn = True
++                                self.tts.tts_text_queue.put(
++                                    TTSMessageDTO(
++                                        sentence_id=current_sentence_id,
++                                        sentence_type=SentenceType.MIDDLE,
++                                        content_type=ContentType.TEXT,
++                                        content_detail=random.choice(self.TOOL_FILLER_PHRASES),
++                                    )
++                                )
++                                break
++
+                     # 流式提取 direct_answer 的 response 参数，实时送 TTS
+                     # 使用安全缓冲区，防止 JSON 闭合符号泄漏到 TTS
+                     _DA_STREAM_BUFFER = 5
+diff --git a/main/xiaozhi-server/core/providers/asr/openai.py b/main/xiaozhi-server/core/providers/asr/openai.py
+index c917cce5..09b4cff1 100644
+--- a/main/xiaozhi-server/core/providers/asr/openai.py
++++ b/main/xiaozhi-server/core/providers/asr/openai.py
+@@ -15,7 +15,18 @@ class ASRProvider(ASRProviderBase):
+         self.interface_type = InterfaceType.NON_STREAM
+         self.api_key = config.get("api_key")
+         self.api_url = config.get("base_url")
+-        self.model = config.get("model_name")        
++        self.model = config.get("model_name")
++        # 可选：指定识别语种（ISO-639-1，如 vi、zh），不填则自动检测
++        self.language = config.get("language")
++        # 可选：提示词，引导识别常用词/人名（如短句"Alo"、机器人名字）
++        self.prompt = config.get("prompt")
++        # 可选：过滤 Whisper 在噪音/静音上的幻觉文本（常开监听时很常见）
++        # no_speech_threshold: 片段 no_speech_prob 高于该值则丢弃（需要 verbose_json）
++        # hallucination_phrases: 命中这些短语（不区分大小写）的结果直接丢弃
++        self.no_speech_threshold = config.get("no_speech_threshold")
++        self.hallucination_phrases = [
++            p.lower() for p in config.get("hallucination_phrases", []) or []
++        ]
+         self.output_dir = config.get("output_dir")
+         self.delete_audio_file = delete_audio_file
+ 
+@@ -24,6 +35,30 @@ class ASRProvider(ASRProviderBase):
+     def requires_file(self) -> bool:
+         return True
+ 
++    def _filter_hallucination(self, result: dict) -> str:
++        """丢弃疑似幻觉的识别结果，返回保留的文本"""
++        segments = result.get("segments")
++        if self.no_speech_threshold is not None and segments:
++            kept = [
++                s.get("text", "")
++                for s in segments
++                if s.get("no_speech_prob", 0) <= self.no_speech_threshold
++            ]
++            text = "".join(kept).strip()
++            if len(kept) < len(segments):
++                logger.bind(tag=TAG).info(
++                    f"丢弃无语音片段 {len(segments) - len(kept)}/{len(segments)}: {result.get('text', '')}"
++                )
++        else:
++            text = result.get("text", "").strip()
++
++        lowered = text.lower()
++        for phrase in self.hallucination_phrases:
++            if phrase in lowered:
++                logger.bind(tag=TAG).info(f"丢弃疑似幻觉文本: {text}")
++                return ""
++        return text
++
+     async def speech_to_text(self, opus_data: List[bytes], session_id: str, artifacts=None) -> Tuple[Optional[str], Optional[str]]:
+         file_path = None
+         try:
+@@ -40,6 +75,12 @@ class ASRProvider(ASRProviderBase):
+             data = {
+                 "model": self.model
+             }
++            if self.language:
++                data["language"] = self.language
++            if self.prompt:
++                data["prompt"] = self.prompt
++            if self.no_speech_threshold is not None:
++                data["response_format"] = "verbose_json"
+ 
+ 
+             with open(file_path, "rb") as audio_file:  # 使用with语句确保文件关闭
+@@ -59,7 +100,7 @@ class ASRProvider(ASRProviderBase):
+                 )
+ 
+             if response.status_code == 200:
+-                text = response.json().get("text", "")
++                text = self._filter_hallucination(response.json())
+                 return text, file_path
+             else:
+                 raise Exception(f"API请求失败: {response.status_code} - {response.text}")
+diff --git a/main/xiaozhi-server/core/providers/tools/server_plugins/plugin_executor.py b/main/xiaozhi-server/core/providers/tools/server_plugins/plugin_executor.py
+index afe89c18..d9eec944 100644
+--- a/main/xiaozhi-server/core/providers/tools/server_plugins/plugin_executor.py
++++ b/main/xiaozhi-server/core/providers/tools/server_plugins/plugin_executor.py
+@@ -97,6 +97,9 @@ class ServerPluginExecutor(ToolExecutor):
+ 
+         # 获取必要的函数
+         necessary_functions = ["handle_exit_intent", "get_lunar"]
++        # 常开监听的设备不需要"退出对话"工具（配置 enable_exit_intent: false 关闭）
++        if not self.config.get("enable_exit_intent", True):
++            necessary_functions.remove("handle_exit_intent")
+ 
+         # 获取配置中的函数
+         config_functions = self.config["Intent"][
+diff --git a/main/xiaozhi-server/core/providers/tts/base.py b/main/xiaozhi-server/core/providers/tts/base.py
+index 2ff779c0..ea704d7e 100644
+--- a/main/xiaozhi-server/core/providers/tts/base.py
++++ b/main/xiaozhi-server/core/providers/tts/base.py
+@@ -110,6 +110,17 @@ class TTSProviderBase(ABC):
+         self.processed_chars = 0
+         self.is_first_sentence = True
+ 
++        # Tải trước TTS cho câu kế tiếp trong lúc câu hiện tại đang được xử lý/phát,
++        # thay vì đợi xong hẳn câu này mới gọi mạng cho câu sau. Chặng chậm nhất của
++        # TTS (ví dụ EdgeTTS) là chờ phản hồi đầu tiên từ mạng, không phải giải mã;
++        # nên phần gọi mạng chạy song song được, còn phần giải mã Opus phải giữ tuần
++        # tự vì dùng chung self.opus_encoder (có trạng thái liên tục giữa các khung).
++        self._tts_fetch_executor = concurrent.futures.ThreadPoolExecutor(
++            max_workers=3, thread_name_prefix="tts-fetch"
++        )
++        # [(future, text_hien_thi, sentence_id)] theo đúng thứ tự cần phát
++        self._pending_tts_futures = []
++
+     def generate_filename(self, extension=".wav"):
+         return os.path.join(
+             self.output_file,
+@@ -123,6 +134,89 @@ class TTSProviderBase(ABC):
+     def handle_audio_file(self, file_audio: bytes, text):
+         self.before_stop_play_files.append((file_audio, text))
+ 
++    def _fetch_tts_bytes(self, text: str) -> bytes:
++        """Chỉ gọi mạng lấy audio, KHÔNG đụng vào tts_audio_queue hay opus_encoder.
++        An toàn để nhiều câu chạy song song trong thread pool vì không có trạng thái
++        dùng chung. Chỉ dùng cho chế độ delete_audio_file=True (audio giữ trong RAM,
++        không ghi file tạm)."""
++        original_text = text
++        text = MarkdownCleaner.clean_markdown(text)
++        if self._correct_words_pattern:
++            text = self._correct_words_pattern.sub(
++                lambda m: self.correct_words[m.group(0)], text
++            )
++        max_repeat_time = 5
++        while max_repeat_time > 0:
++            try:
++                audio_bytes = asyncio.run(self.text_to_speak(text, None))
++                if audio_bytes:
++                    logger.bind(tag=TAG).info(
++                        f"语音生成成功(异步预取): {original_text}，重试{5 - max_repeat_time}次"
++                    )
++                    return audio_bytes
++                max_repeat_time -= 1
++            except Exception as e:
++                logger.bind(tag=TAG).warning(
++                    f"语音生成失败{5 - max_repeat_time + 1}次: {original_text}，错误: {e}"
++                )
++                max_repeat_time -= 1
++        logger.bind(tag=TAG).error(
++            f"语音生成失败: {original_text}，请检查网络或服务是否正常"
++        )
++        return None
++
++    def _flush_tts_bytes(
++        self,
++        original_text: str,
++        audio_bytes: bytes,
++        sentence_id,
++        opus_handler: Callable[[bytes], None],
++    ) -> None:
++        """Đẩy kết quả TTS (đã tải xong ở nền) vào hàng đợi phát, theo đúng thứ tự.
++        Luôn chạy trong tts_text_priority_thread (một luồng duy nhất) nên dùng
++        self.opus_encoder an toàn."""
++        self.current_sentence_id = sentence_id
++        if not audio_bytes:
++            return
++        self.tts_audio_queue.put((SentenceType.FIRST, None, original_text, sentence_id))
++        audio_bytes_to_data_stream(
++            audio_bytes,
++            file_type=self.audio_file_type,
++            is_opus=True,
++            callback=opus_handler,
++            sample_rate=self.conn.sample_rate,
++            opus_encoder=self.opus_encoder,
++        )
++
++    def _submit_tts_fetch(self, text: str, sentence_id) -> None:
++        """Xếp một câu vào hàng chờ tải TTS song song (không chặn luồng gọi)."""
++        future = self._tts_fetch_executor.submit(self._fetch_tts_bytes, text)
++        self._pending_tts_futures.append((future, text, sentence_id))
++
++    def _drain_ready_tts_futures(self, opus_handler: Callable[[bytes], None]) -> None:
++        """Đẩy ra những câu ĐÃ tải xong, chỉ khi đúng lượt (đầu hàng đợi), giữ thứ
++        tự phát. Không chặn: câu chưa xong thì dừng lại, chờ vòng lặp sau."""
++        while self._pending_tts_futures and self._pending_tts_futures[0][0].done():
++            future, text, sentence_id = self._pending_tts_futures.pop(0)
++            if sentence_id != self.conn.sentence_id:
++                continue  # turn đã bị hủy/đổi từ lúc submit, bỏ kết quả này
++            self._flush_tts_bytes(text, future.result(), sentence_id, opus_handler)
++
++    def _drain_all_tts_futures(self, opus_handler: Callable[[bytes], None]) -> None:
++        """Chờ VÀ đẩy hết mọi câu đang chờ, theo đúng thứ tự. Dùng trước khi xử lý
++        file âm thanh (FILE) hoặc kết thúc lượt (LAST), để không bị đảo thứ tự."""
++        while self._pending_tts_futures:
++            future, text, sentence_id = self._pending_tts_futures.pop(0)
++            if sentence_id != self.conn.sentence_id:
++                continue
++            self._flush_tts_bytes(text, future.result(), sentence_id, opus_handler)
++
++    def _discard_pending_tts_futures(self) -> None:
++        """Bỏ (không đợi, không phát) các câu còn treo từ lượt trước — gọi khi bắt
++        đầu lượt mới. Các future cũ vẫn chạy nốt trong nền rồi tự bị bỏ qua, không
++        có tác dụng phụ nguy hiểm nào ngoài lãng phí một lượt gọi mạng đã lỡ gửi."""
++        self._pending_tts_futures = []
++
+     def to_tts_stream(self, text, opus_handler: Callable[[bytes], None] = None) -> None:
+         # 保留原始文本用于显示/上报
+         original_text = text
+@@ -385,12 +479,21 @@ class TTSProviderBase(ABC):
+                     self.tts_text_buff = []
+                     self.is_first_sentence = True
+                     self.tts_audio_first_sentence = True
++                    self._discard_pending_tts_futures()
+                 elif ContentType.TEXT == message.content_type:
+                     self.tts_text_buff.append(message.content_detail)
+                     segment_text = self._get_segment_text()
+                     if segment_text:
+-                        self.to_tts_stream(segment_text, opus_handler=self.handle_opus)
++                        if self.delete_audio_file:
++                            # Xếp gọi mạng ngay, không chờ; đẩy ra những câu trước
++                            # đã tải xong (song song, giữ đúng thứ tự phát)
++                            self._submit_tts_fetch(segment_text, message.sentence_id)
++                            self._drain_ready_tts_futures(self.handle_opus)
++                        else:
++                            # Chế độ ghi file tạm: giữ đường cũ (tuần tự)
++                            self.to_tts_stream(segment_text, opus_handler=self.handle_opus)
+                 elif ContentType.FILE == message.content_type:
++                    self._drain_all_tts_futures(self.handle_opus)
+                     self._process_remaining_text_stream(opus_handler=self.handle_opus)
+                     tts_file = message.content_file
+                     if tts_file and os.path.exists(tts_file):
+@@ -398,12 +501,17 @@ class TTSProviderBase(ABC):
+                             tts_file, callback=self.handle_opus
+                         )
+                 if message.sentence_type == SentenceType.LAST:
++                    self._drain_all_tts_futures(self.handle_opus)
+                     self._process_remaining_text_stream(opus_handler=self.handle_opus)
+                     self.tts_audio_queue.put(
+                         (message.sentence_type, [], message.content_detail, message.sentence_id)
+                     )
+ 
+             except queue.Empty:
++                # Không có văn bản mới, nhưng câu đang tải song song ở nền có thể
++                # đã xong — đẩy ra luôn, đừng đợi tin nhắn tiếp theo mới kiểm tra.
++                if self._pending_tts_futures and not self.conn.client_abort:
++                    self._drain_ready_tts_futures(self.handle_opus)
+                 continue
+             except Exception as e:
+                 logger.bind(tag=TAG).error(
+@@ -480,6 +588,9 @@ class TTSProviderBase(ABC):
+     async def close(self):
+         """资源清理方法"""
+         self._sentence_text_map.clear()
++        self._discard_pending_tts_futures()
++        if hasattr(self, "_tts_fetch_executor"):
++            self._tts_fetch_executor.shutdown(wait=False, cancel_futures=True)
+         if hasattr(self, "ws") and self.ws:
+             await self.ws.close()
+ 
+diff --git a/main/xiaozhi-server/core/utils/current_time.py b/main/xiaozhi-server/core/utils/current_time.py
+index 714dd50f..0c6e18e6 100644
+--- a/main/xiaozhi-server/core/utils/current_time.py
++++ b/main/xiaozhi-server/core/utils/current_time.py
+@@ -7,13 +7,13 @@ import cnlunar
+ from datetime import datetime
+ 
+ WEEKDAY_MAP = {
+-    "Monday": "星期一",
+-    "Tuesday": "星期二", 
+-    "Wednesday": "星期三",
+-    "Thursday": "星期四",
+-    "Friday": "星期五",
+-    "Saturday": "星期六",
+-    "Sunday": "星期日",
++    "Monday": "Thứ Hai",
++    "Tuesday": "Thứ Ba",
++    "Wednesday": "Thứ Tư",
++    "Thursday": "Thứ Năm",
++    "Friday": "Thứ Sáu",
++    "Saturday": "Thứ Bảy",
++    "Sunday": "Chủ Nhật",
+ }
+ 
+ 
+diff --git a/main/xiaozhi-server/core/utils/prompt_manager.py b/main/xiaozhi-server/core/utils/prompt_manager.py
+index edae6e9a..19f10665 100644
+--- a/main/xiaozhi-server/core/utils/prompt_manager.py
++++ b/main/xiaozhi-server/core/utils/prompt_manager.py
+@@ -130,16 +130,18 @@ class PromptManager:
+     def _get_current_time_info(self) -> tuple:
+         """获取当前时间信息"""
+         from .current_time import (
++            get_current_time,
+             get_current_date,
+             get_current_weekday,
+             get_current_lunar_date,
+         )
+ 
++        current_time = get_current_time()
+         today_date = get_current_date()
+         today_weekday = get_current_weekday()
+         lunar_date = get_current_lunar_date() + "\n"
+ 
+-        return today_date, today_weekday, lunar_date
++        return current_time, today_date, today_weekday, lunar_date
+ 
+     def _get_location_info(self, client_ip: str) -> str:
+         """获取位置信息"""
+@@ -255,7 +257,9 @@ class PromptManager:
+ 
+         try:
+             # 获取最新的时间信息（不缓存）
+-            today_date, today_weekday, lunar_date = self._get_current_time_info()
++            current_time, today_date, today_weekday, lunar_date = (
++                self._get_current_time_info()
++            )
+ 
+             # 获取缓存的上下文信息
+             local_address = ""
+@@ -287,7 +291,7 @@ class PromptManager:
+             template = Template(self.base_prompt_template)
+             enhanced_prompt = template.render(
+                 base_prompt=user_prompt,
+-                current_time="{{current_time}}",
++                current_time=current_time,
+                 today_date=today_date,
+                 today_weekday=today_weekday,
+                 lunar_date=lunar_date,

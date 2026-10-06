@@ -55,4 +55,10 @@
 // A MCP Test: Control a lamp
 #define LAMP_GPIO GPIO_NUM_18
 
+// 4 servo chan (khong tay) - da test ky bang test/servo_test_esp32
+#define OTTO_LEFT_LEG_GPIO   GPIO_NUM_13
+#define OTTO_RIGHT_LEG_GPIO  GPIO_NUM_22
+#define OTTO_LEFT_FOOT_GPIO  GPIO_NUM_21
+#define OTTO_RIGHT_FOOT_GPIO GPIO_NUM_23
+
 #endif // _BOARD_CONFIG_H_

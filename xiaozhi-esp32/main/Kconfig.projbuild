@@ -2,9 +2,17 @@ menu "Xiaozhi Assistant"
 
 config OTA_URL
     string "Default OTA URL"
-    default "https://api.tenclass.net/xiaozhi/ota/"
+    default "https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/"
     help
         The application will access this URL to check for new firmwares and server address.
+
+config ALWAYS_LISTENING
+    bool "Always listening (auto-open chat when idle)"
+    default y
+    help
+        Open the chat automatically after boot and whenever the connection closes,
+        so the device keeps listening without a wake word. Press the chat button
+        while listening to pause; press again to resume.
 
 choice
     prompt "Flash Assets"

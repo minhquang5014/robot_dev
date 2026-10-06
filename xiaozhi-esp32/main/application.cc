@@ -16,6 +16,7 @@
 #include <esp_log.h>
 #include <arpa/inet.h>
 #include <cJSON.h>
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -282,6 +283,23 @@ void Application::Run() {
                 // SystemInfo::PrintTaskList();
                 // SystemInfo::PrintTaskCpuUsage(pdMS_TO_TICKS(1000));
             }
+
+#ifdef CONFIG_ALWAYS_LISTENING
+            // Reopen the chat automatically after idling a few seconds.
+            // clock_ticks_ resets on every state change, so it counts idle seconds.
+            // Back off 5s, 10s, 20s, 40s, then 60s while the channel keeps failing.
+            if (GetDeviceState() == kDeviceStateIdle && !auto_listen_paused_) {
+                int delay = 5 << std::min(auto_listen_failures_, 4);
+                if (delay > 60) {
+                    delay = 60;
+                }
+                if (clock_ticks_ >= delay) {
+                    ESP_LOGI(TAG, "Always listening: reopening chat (attempt %d)", auto_listen_failures_ + 1);
+                    auto_listen_failures_++;
+                    ToggleChatState();
+                }
+            }
+#endif
         }
     }
 }
@@ -559,6 +577,7 @@ void Application::InitializeProtocol() {
 
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+        auto_listen_failures_ = 0;
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG,
                      "Server sample rate %d does not match device output sample rate %d, "
@@ -583,6 +602,7 @@ void Application::InitializeProtocol() {
             ESP_LOGW(TAG, "Incoming JSON message has no type");
             return;
         }
+        ESP_LOGI(TAG, "Incoming JSON type: %s", type->valuestring);
         if (strcmp(type->valuestring, "notify") == 0) {
             auto audio_url = cJSON_GetObjectItem(root, "audio_url");
             if (!cJSON_IsString(audio_url) || audio_url->valuestring[0] == '\0') {
@@ -669,6 +689,7 @@ void Application::InitializeProtocol() {
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
+            ESP_LOGI(TAG, "LLM emotion: %s", cJSON_IsString(emotion) ? emotion->valuestring : "(none)");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());
@@ -804,6 +825,7 @@ void Application::HandleToggleChatEvent() {
     }
 
     if (state == kDeviceStateIdle) {
+        auto_listen_paused_ = false;
         ListeningMode mode = GetDefaultListeningMode();
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
@@ -815,6 +837,8 @@ void Application::HandleToggleChatEvent() {
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
+        // Closed on purpose: keep it closed until the button is pressed again
+        auto_listen_paused_ = true;
         protocol_->CloseAudioChannel();
     }
 }

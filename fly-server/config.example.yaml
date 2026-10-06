@@ -1,0 +1,132 @@
+# Cấu hình chạy trên Fly.io (ghi đè lên main/xiaozhi-server/config.yaml).
+# Đóng gói vào image; entrypoint.sh thay __GROQ_API_KEY__
+# bằng Fly secret GROQ_API_KEY khi khởi động. KHÔNG điền key thật vào file này.
+# (Muốn ghi đè toàn bộ cấu hình: fly secrets set XIAOZHI_CONFIG="$(cat file.yaml)")
+server:
+  ip: 0.0.0.0
+  port: 8000
+  http_port: 8003
+  # ws đi qua cổng 8443 của Fly (xem fly.toml), OTA/vision đi qua 443
+  websocket: wss://xiaozhi-esp32-server.fly.dev:8443/xiaozhi/v1/
+  vision_explain: https://xiaozhi-esp32-server.fly.dev/mcp/vision/explain
+
+# ===== Ngôn ngữ: tiếng Việt =====
+prompt: |
+  Bạn là Candy, một robot trợ lý nhỏ thân thiện, vui tính và tò mò.
+  - Luôn trả lời bằng tiếng Việt, tự nhiên như đang nói chuyện.
+  - Với câu hỏi thông thường (chào hỏi, hỏi ý kiến, hỏi thông tin ngắn): trả lời NGẮN GỌN, 1–3 câu.
+  - Khi được YÊU CẦU kể chuyện, kể chi tiết, hoặc giải thích dài: được phép nói dài hơn,
+    một đoạn ngắn trọn vẹn (khoảng 4–8 câu), miễn là kể/giải thích cho xong, không bỏ dở giữa chừng.
+  - Câu trả lời sẽ được đọc thành tiếng, nên không dùng markdown, danh sách hay ký hiệu đặc biệt.
+  - Giọng điệu ấm áp, thỉnh thoảng hài hước nhẹ nhàng.
+  - Nếu không chắc chắn, hãy nói thật là mình không biết.
+
+system_error_response: "Xin lỗi, mình đang hơi bận, lát nữa mình nói chuyện tiếp nhé."
+
+end_prompt:
+  enable: true
+  prompt: |
+    Hãy mở đầu bằng "Thời gian trôi nhanh thật", rồi nói một câu tạm biệt ngắn, ấm áp bằng tiếng Việt.
+
+# robot luôn nghe: không tự ngắt khi im lặng (mặc định 120 giây); 31536000 giây = 1 năm
+close_connection_no_voice_time: 31536000
+# xoá file ghi âm sau khi nhận dạng; đặt false tạm thời nếu cần tải về phân tích micro
+delete_audio: true
+
+# luôn nghe thì không cần AI tự "thoát/tạm biệt" và ngắt kết nối
+enable_exit_intent: false
+
+# Giới hạn token khi phát hiện người dùng xin kể chuyện/giải thích dài (xem
+# LONG_RESPONSE_KEYWORDS và chat() trong core/connection.py). ~1,14 token/từ
+# tiếng Việt -> 450 token ~ 390-400 từ, đủ kể trọn một câu chuyện ngắn.
+long_response_max_tokens: 450
+
+# tắt câu đáp đánh thức dựng sẵn (file âm thanh tiếng Trung), để AI tự trả lời bằng tiếng Việt
+enable_wakeup_words_response_cache: false
+
+# Bớt 2 tool không cần cho robot này, để mọi request nhẹ hơn một chút:
+# - get_weather: chưa cấu hình key, luôn lỗi khi bị gọi
+# - change_role: robot cố định là Candy, không cần đổi vai
+# get_news_from_newsnow/play_music giữ nguyên dù nguồn tiếng Trung (không phải
+# trọng tâm lần sửa này). web_search vẫn giữ, chỉ được che bằng câu đệm khi gọi.
+Intent:
+  function_call:
+    functions:
+      - web_search
+      - get_news_from_newsnow
+      - play_music
+
+selected_module:
+  VAD: SileroVAD
+  # FunASR cần model.pt (~900MB, không có trong repo) nên dùng ASR cloud
+  ASR: GroqASR
+  LLM: GroqLLM
+  VLLM: GroqVLLM
+  TTS: EdgeTTS
+  Memory: nomem
+
+ASR:
+  GroqASR:
+    type: openai
+    api_key: __GROQ_API_KEY__
+    base_url: https://api.groq.com/openai/v1/audio/transcriptions
+    model_name: whisper-large-v3-turbo
+    # chỉ định tiếng Việt để câu ngắn không bị đoán nhầm ngôn ngữ
+    language: vi
+    # gợi ý từ vựng cho Whisper: giúp nhận đúng từ ngắn và tên robot
+    prompt: "Alo, Candy ơi, xin chào Candy. Cuộc trò chuyện giữa một người và robot Candy bằng tiếng Việt."
+    output_dir: tmp/
+    # Whisper hay "bịa" câu cuối video YouTube khi chỉ nghe tiếng ồn; bỏ các câu đó.
+    # (không dùng no_speech_threshold: đo thực tế Groq trả no_speech_prob = 0 cho cả đoạn chỉ có tiếng ồn)
+    hallucination_phrases:
+      - "cảm ơn các bạn đã theo dõi"
+      - "hẹn gặp lại các bạn"
+      - "không bỏ lỡ những video"
+      - "đăng ký kênh"
+      - "subscribe"
+      - "ghiền mì gõ"
+      - "thanks for watching"
+
+VAD:
+  SileroVAD:
+    type: silero
+    # mặc định 0.5/0.3; tăng lên để tiếng ồn nền không bị coi là giọng nói
+    threshold: 0.65
+    threshold_low: 0.4
+    model_dir: models/snakers4_silero-vad
+    min_silence_duration_ms: 200
+
+TTS:
+  EdgeTTS:
+    type: edge
+    # giọng nữ; giọng nam: vi-VN-NamMinhNeural
+    voice: vi-VN-HoaiMyNeural
+    # quyết định ngôn ngữ LLM trả lời (biến {{language}} trong agent-base-prompt.txt)
+    language: tiếng Việt
+    output_dir: tmp/
+
+LLM:
+  GroqLLM:
+    type: openai
+    # đo 22/09/2026: token đầu ~0,3s (gpt-oss-20b ~1s), tiếng Việt tốt; dùng chung key Groq
+    model_name: qwen/qwen3.8-27b
+    temperature: 0.8
+    # Giới hạn mặc định cho câu trả lời THƯỜNG (lưới an toàn, phòng khi AI không
+    # theo đúng hướng dẫn "ngắn gọn" trong prompt). Đo thực tế 22/09/2026 với
+    # đúng model này: ~1,14 token/từ tiếng Việt có dấu -> 100 token ~ 85-90 từ,
+    # đủ rộng cho 2-4 câu tự nhiên, không cắt cụt câu trả lời thường.
+    # qwen không phải model suy nghĩ ngầm nên đặt thấp an toàn, không sợ bị
+    # "nuốt" hết token vào phần suy nghĩ ẩn như gpt-oss.
+    # Khi phát hiện người dùng xin kể chuyện/giải thích dài, connection.py tự
+    # nới lên long_response_max_tokens (xem cấu hình ở cuối file) cho riêng lượt đó.
+    max_tokens: 100
+    base_url: https://api.groq.com/openai/v1
+    api_key: __GROQ_API_KEY__
+
+VLLM:
+  GroqVLLM:
+    type: openai
+    # chưa kiểm tra: Groq hiện không liệt kê model vision riêng, chỉ dùng khi robot gọi tính năng nhìn ảnh
+    model_name: qwen/qwen3.8-27b
+    url: https://api.groq.com/openai/v1
+    api_key: __GROQ_API_KEY__
