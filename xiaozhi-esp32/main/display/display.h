@@ -55,6 +55,10 @@ public:
     virtual void ShowWifiConfig(const char* ssid, const char* url) {
         (void)ssid; (void)url;
     }
+    // Thoat che do cau hinh. Trang web co nut thoat ma KHONG khoi dong lai
+    // (WifiManager::StopConfigAp), nen phai tu don tam huong dan di, khong
+    // thi no nam lai che mat man hinh chinh.
+    virtual void HideWifiConfig() {}
     virtual bool AddTextGlyphs(const std::vector<TextGlyph>& glyphs, uint8_t bpp) { return false; }
     virtual void ClearTextGlyphs() {}
     virtual void SetEmojiCollection(std::shared_ptr<EmojiCollection>) {}

@@ -143,7 +143,11 @@ void Application::Initialize() {
                 // WiFi config mode enter is handled by WifiBoard internally
                 break;
             case NetworkEvent::WifiConfigModeExit:
-                // WiFi config mode exit is handled by WifiBoard internally
+                // WiFi config mode exit is handled by WifiBoard internally.
+                // Nhung tam huong dan cau hinh thi man hinh tu ve ra, phai tu
+                // don. Thoat tu trang web khong khoi dong lai may (xem
+                // WifiManager::StopConfigAp) nen khong don la no che mat mat.
+                display->HideWifiConfig();
                 break;
             // Cellular modem specific events
             case NetworkEvent::ModemDetecting:

@@ -21,6 +21,7 @@ Hai cai bay da vap phai khi dung PyAV, ghi lai keo quen:
 """
 
 import logging
+import os
 import time
 import wave
 
@@ -156,8 +157,15 @@ class SpeechDetector:
     loc bot, ma van re hon nhieu so voi keo ca Silero + torch vao.
     """
 
-    def __init__(self, silence_ms: int = 800, min_speech_ms: int = 300,
+    # silence_ms la nua do tre ma nguoi dung cam nhan duoc. Do tren Fly ngay
+    # 06/10: tu luc NGUNG NOI den khi co tieng mat 1844ms, trong do 800ms chi
+    # la ngoi cho xem co noi tiep khong. Ha xuong 350ms thi con ~1400ms.
+    # Danh doi: noi ma ngap ngung giua cau se bi cat ngang. Dat bang bien moi
+    # truong VAD_SILENCE_MS neu muon chinh ma khong sua code.
+    def __init__(self, silence_ms: int = None, min_speech_ms: int = 300,
                  max_ms: int = 15000, energy: int = 200, aggressiveness: int = 2):
+        if silence_ms is None:
+            silence_ms = int(os.environ.get("VAD_SILENCE_MS", "350"))
         import webrtcvad
         self.vad = webrtcvad.Vad(aggressiveness)
         self.silence_ms = silence_ms

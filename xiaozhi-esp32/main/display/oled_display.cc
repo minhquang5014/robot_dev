@@ -692,6 +692,14 @@ void OledDisplay::ShowWifiConfig(const char* ssid, const char* url) {
     lv_obj_move_foreground(wifi_cfg_);
 }
 
+void OledDisplay::HideWifiConfig() {
+    DisplayLockGuard lock(this);
+    if (wifi_cfg_) lv_obj_add_flag(wifi_cfg_, LV_OBJ_FLAG_HIDDEN);
+    // Tra lai doi mat va cho chop mat chay tiep.
+    if (eyes_area_) lv_obj_remove_flag(eyes_area_, LV_OBJ_FLAG_HIDDEN);
+    if (eye_blink_timer_) lv_timer_resume(eye_blink_timer_);
+}
+
 void OledDisplay::SetTheme(Theme* theme) {
     DisplayLockGuard lock(this);
 

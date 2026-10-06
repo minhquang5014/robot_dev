@@ -68,6 +68,7 @@ public:
     virtual bool IsMonochrome() const override { return true; }
     void SetPowerSaveMode(bool on) override;
     void ShowWifiConfig(const char* ssid, const char* url) override;
+    void HideWifiConfig() override;
 };
 
 #endif  // OLED_DISPLAY_H
