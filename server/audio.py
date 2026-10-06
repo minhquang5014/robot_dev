@@ -182,12 +182,21 @@ class SpeechDetector:
     # Danh doi: noi ma ngap ngung giua cau se bi cat ngang. Dat bang bien moi
     # truong VAD_SILENCE_MS neu muon chinh ma khong sua code.
     def __init__(self, silence_ms: int = None, min_speech_ms: int = 300,
-                 max_ms: int = 15000, energy: int = 200, aggressiveness: int = 2):
+                 max_ms: int = 15000, energy: int = 200, aggressiveness: int = None):
         if silence_ms is None:
             silence_ms = int(os.environ.get("VAD_SILENCE_MS", "350"))
         # San tuyet doi (chong im lang hoan toan) va he so so voi san nhieu.
         energy = int(os.environ.get("VAD_ENERGY", str(energy)))
         self.noise_ratio = float(os.environ.get("VAD_NOISE_RATIO", "2.5"))
+        # Muc gat 3 (cao nhat) chu khong phai 2. Bro ngoi canh quat, ma quat
+        # la nhieu dai rong lien tuc — dung loai webrtcvad hay nham nhat.
+        # Thu voi tieng quat mo phong (nhieu mau nau + am dieu canh quat):
+        #     gat 2 -> 9/133 khung nhan nham la tieng noi
+        #     gat 3 -> 0/133
+        # Chin khung do khong du de chot sai, nhung moi khung lai DAT LAI bo
+        # dem im lang, du de pha luon viec chot cau.
+        if aggressiveness is None:
+            aggressiveness = int(os.environ.get("VAD_AGGRESSIVENESS", "3"))
         import webrtcvad
         self.vad = webrtcvad.Vad(aggressiveness)
         self.silence_ms = silence_ms
