@@ -459,6 +459,14 @@ static EyePair GetEyePairForEmotion(const std::string& e) {
         return Same({28, 32, 0, 0, 0, 16, -4});
     // Cười lớn: mắt thành vòng cung mảnh ⌒, mỏng và cong hơn bản happy
     if (e == "laughing" || e == "funny") return Same({30, 30, 0, 0, 14, 24, -14});
+    // Cười tít mắt (kiểu EMO): mắt nhắm thành vòm ^ ^ dày, to và tròn hơn
+    // laughing — vui sướng, được khen, được vuốt ve.
+    if (e == "joyful") return Same({32, 28, 0, 0, 8, 20, -18});
+    // Bực mình: như angry nhưng nhẹ — mí chỉ hạ 1/3, dốc vừa, mắt còn mở.
+    if (e == "annoyed") return Same({28, 30, 9, 40, 0, 3, 0});
+    // Dỗi: hai mắt lệch nhau (một bên nhỏ hơn, mí xệ hơn) như đang ngoảnh mặt
+    // đi, mí dốc vào trong và đáy nâng lên — phụng phịu, không phải buồn.
+    if (e == "pouting") return {{26, 28, 12, 20, 0, 8, 0}, {22, 26, 14, 25, 0, 8, 0}};
     // Giận: che gần hết, chỉ chừa 1 nêm mỏng phía trong dốc xuống mạnh —
     // giống nét mày nhíu lại chứ không chỉ nheo mắt.
     if (e == "angry") return Same({28, 32, 14, 70, 0, 4, 0});

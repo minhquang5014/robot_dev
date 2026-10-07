@@ -162,6 +162,37 @@ def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
     return (np.clip(x, -CEIL, CEIL) * 32767).astype(np.int16)
 
 
+class HighPass:
+    """Loc bo tieng u tram duoi ~120 Hz cua mic, giu trang thai giua cac goi.
+
+    Do tieng mic that ngay 07/10/2026 (XZ_DUMP_OPUS): nen im lang -15 dBFS,
+    87-99% nang luong nam DUOI 100 Hz — u tram/troi dien ap, khong phai tieng
+    phong. No lua VAD tuong dang co nguoi noi (mo luot rong, Whisper bia cau
+    YouTube) va day dinh tieng noi cham tran. Giong noi tu ~150 Hz tro len nen
+    cat duoi 120 Hz khong mat chu nao: luot co tieng noi that SNR 28 -> 44 dB.
+
+    Hai tang bac 1 noi tiep (12 dB/oct). Chay tung mau nen dung duoc tren luong.
+    """
+
+    def __init__(self, fc: float = 120.0, sr: int = SAMPLE_RATE, stages: int = 2):
+        self.a = float(np.exp(-2 * np.pi * fc / sr))
+        self.state = [[0.0, 0.0] for _ in range(stages)]   # (x truoc, y truoc)
+
+    def process(self, pcm: np.ndarray) -> np.ndarray:
+        if not len(pcm):
+            return pcm
+        x = pcm.astype(np.float64).tolist()
+        a = self.a
+        for st in self.state:
+            px, py = st
+            for i, v in enumerate(x):
+                py = a * (py + v - px)
+                px = v
+                x[i] = py
+            st[0], st[1] = px, py
+        return np.clip(np.asarray(x), -32768, 32767).astype(np.int16)
+
+
 class SpeechDetector:
     """Biet luc nao nguoi noi da dut cau.
 

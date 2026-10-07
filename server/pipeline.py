@@ -42,22 +42,24 @@ def _make_session() -> "requests.Session":
 _SESSION = _make_session()   # Groq
 _XAI = _make_session()       # xAI
 
-# Danh sach emotion ma firmware hieu duoc, lay tu
-# xiaozhi-esp32/main/boards/espressif/esp-vocat/assets/360_360/emote.json
-# Gui ten ngoai danh sach nay thi thiet bi im lang roi ve neutral.
+# Danh sach emotion ma firmware hieu duoc — GetEyePairForEmotion() trong
+# xiaozhi-esp32/main/display/oled_display.cc. Gui ten ngoai danh sach thi mat
+# ve dang neutral. joyful/annoyed/pouting them 07/10/2026 theo kieu robot EMO.
 VALID_EMOTIONS = {
     "neutral", "happy", "laughing", "funny", "loving", "embarrassed",
     "confident", "delicious", "sad", "crying", "sleepy", "silly", "angry",
     "surprised", "shocked", "thinking", "winking", "relaxed", "confused",
+    "joyful", "annoyed", "pouting",
 }
 
 # Model hay tu bia ten cam xuc tu nhien hon danh sach tren. Do ngay 17/09/2026:
 # 1/4 cau chao tra ve [excited] -> truoc day bi am tham doi thanh neutral.
 # Quy ve ten gan nghia nhat thay vi vut di.
 EMOTION_ALIASES = {
-    "excited": "happy", "joyful": "happy", "cheerful": "happy", "glad": "happy",
+    "excited": "happy", "cheerful": "happy", "glad": "happy",
     "smile": "happy", "smiling": "happy", "grateful": "happy",
-    "laugh": "laughing", "giggle": "laughing",
+    "laugh": "laughing", "giggle": "joyful",
+    "delighted": "joyful", "overjoyed": "joyful", "blissful": "joyful",
     "love": "loving", "affectionate": "loving", "caring": "loving", "warm": "loving",
     "shy": "embarrassed", "blush": "embarrassed", "awkward": "embarrassed",
     "proud": "confident", "determined": "confident",
@@ -67,7 +69,9 @@ EMOTION_ALIASES = {
     "tired": "sleepy", "bored": "sleepy",
     "playful": "silly", "goofy": "silly",
     "mischievous": "winking", "wink": "winking",
-    "mad": "angry", "annoyed": "angry", "grumpy": "angry",
+    "mad": "angry", "furious": "angry",
+    "irritated": "annoyed", "frustrated": "annoyed",
+    "grumpy": "pouting", "sulky": "pouting", "pout": "pouting", "huffy": "pouting",
     "amazed": "surprised", "curious": "surprised",
     "scared": "shocked", "afraid": "shocked", "fear": "shocked",
     "wondering": "thinking", "pondering": "thinking",
@@ -81,6 +85,8 @@ Bạn là một robot để bàn nhỏ, tên là Mơ. Bạn nói tiếng Việt.
 Luật bắt buộc:
 1. Bắt đầu MỌI câu trả lời bằng đúng MỘT tag cảm xúc trong ngoặc vuông. CHỈ được
    dùng một trong các từ sau, không tự đặt từ khác: {emotions}
+   Gợi ý: joyful = cười tít mắt khi được khen, được cưng; annoyed = hơi bực khi bị
+   làm phiền; pouting = dỗi, phụng phịu khi bị trêu hay bị bỏ rơi; angry chỉ khi giận thật.
 2. Sau tag là câu trả lời, TỐI ĐA 2 CÂU ngắn. Ngắn gọn như thú cưng, không giảng giải.
    Không chèn thêm tag nào nữa ở giữa câu.
 3. Xưng "tớ", gọi người đối diện là "cậu". Giọng trẻ con, vui vẻ, tò mò.

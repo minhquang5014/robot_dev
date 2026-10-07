@@ -21,7 +21,7 @@ INMP441          ESP32          MAX98357A        ESP32
   L/R    ->      GND              DIN     ->      GPIO33
   WS     ->      GPIO25           BCLK    ->      GPIO14
   SCK    ->      GPIO26           LRC     ->      GPIO27
-  SD     ->      GPIO32           GAIN    ->      để trống (9dB)
+  SD     ->      GPIO32           GAIN    ->      GND (12dB)
                                   SD      ->      để trống
 OLED SSD1306     ESP32            +/-     ->      loa 4-8Ω
   VCC    ->      3V3
