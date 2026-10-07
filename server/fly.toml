@@ -10,7 +10,7 @@ primary_region = 'sin'
   TTS_PROVIDER = 'xai'
   XAI_TTS_VOICE = 'eve'
   LLM_MODEL = 'qwen/qwen3.8-27b'
-  TTS_GAIN_DB = '10'
+  TTS_GAIN_DB = '6'
   # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
   PUBLIC_BASE_URL = 'https://xiaozhi-esp32-server.fly.dev'
 

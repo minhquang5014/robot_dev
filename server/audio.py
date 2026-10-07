@@ -21,6 +21,7 @@ Hai cai bay da vap phai khi dung PyAV, ghi lai keo quen:
 """
 
 import logging
+import os
 import time
 import wave
 
@@ -124,6 +125,25 @@ class OpusEncoder:
         return [bytes(p) for p in self.ctx.encode(fr)]
 
 
+# Tran cua bo han bien, KHONG phai 1.0. Opus la codec co ton that: tin hieu
+# ra co the vot cao hon tin hieu vao mot chut. Ep sat 1.0 thi cai vot do cham
+# tran va nghe RE. Chua lai ~0.7 dB headroom la het.
+#
+# Do ngay 06/10/2026, cau "Xin chao, to la Mo...", dem so mau cham tran SAU
+# khi ma hoa Opus roi giai ma lai — tuc dung thu thiet bi nghe:
+#
+#     gain   tran 1.00        tran 0.92
+#      4 dB   0 mau           0 mau    rms -14.1
+#      6 dB   1 mau           0 mau    rms -12.1   <-- dang dung
+#      8 dB  18 mau           7 mau    rms -10.4
+#     10 dB 114 mau          42 mau    rms  -8.6   <-- muc cu, chinh la cho re
+#
+# Tieng xAI goc dinh -4.8 dBFS, SACH, khong mot mau nao cham tran. Toan bo
+# tieng re la do minh khuech dai qua tay roi nen vao bo han bien.
+KNEE = 0.6
+CEIL = 0.92
+
+
 def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
     """Keo to tieng TTS ma khong re. Tung mau mot nen dung duoc ngay tren
     luong streaming, khong phai doi het cau.
@@ -135,11 +155,11 @@ def boost(pcm: np.ndarray, gain_db: float) -> np.ndarray:
     if gain_db <= 0 or not len(pcm):
         return pcm
     x = pcm.astype(np.float32) / 32768.0 * (10 ** (gain_db / 20.0))
-    knee = 0.7
     a = np.abs(x)
-    over = a > knee
-    x[over] = np.sign(x[over]) * (knee + (1 - knee) * np.tanh((a[over] - knee) / (1 - knee)))
-    return (x * 32767).astype(np.int16)
+    over = a > KNEE
+    x[over] = np.sign(x[over]) * (KNEE + (CEIL - KNEE) *
+                                  np.tanh((a[over] - KNEE) / (CEIL - KNEE)))
+    return (np.clip(x, -CEIL, CEIL) * 32767).astype(np.int16)
 
 
 class SpeechDetector:
@@ -156,8 +176,27 @@ class SpeechDetector:
     loc bot, ma van re hon nhieu so voi keo ca Silero + torch vao.
     """
 
-    def __init__(self, silence_ms: int = 800, min_speech_ms: int = 300,
-                 max_ms: int = 15000, energy: int = 200, aggressiveness: int = 2):
+    # silence_ms la nua do tre ma nguoi dung cam nhan duoc. Do tren Fly ngay
+    # 06/10: tu luc NGUNG NOI den khi co tieng mat 1844ms, trong do 800ms chi
+    # la ngoi cho xem co noi tiep khong. Ha xuong 350ms thi con ~1400ms.
+    # Danh doi: noi ma ngap ngung giua cau se bi cat ngang. Dat bang bien moi
+    # truong VAD_SILENCE_MS neu muon chinh ma khong sua code.
+    def __init__(self, silence_ms: int = None, min_speech_ms: int = 300,
+                 max_ms: int = 15000, energy: int = 200, aggressiveness: int = None):
+        if silence_ms is None:
+            silence_ms = int(os.environ.get("VAD_SILENCE_MS", "350"))
+        # San tuyet doi (chong im lang hoan toan) va he so so voi san nhieu.
+        energy = int(os.environ.get("VAD_ENERGY", str(energy)))
+        self.noise_ratio = float(os.environ.get("VAD_NOISE_RATIO", "2.5"))
+        # Muc gat 3 (cao nhat) chu khong phai 2. Bro ngoi canh quat, ma quat
+        # la nhieu dai rong lien tuc — dung loai webrtcvad hay nham nhat.
+        # Thu voi tieng quat mo phong (nhieu mau nau + am dieu canh quat):
+        #     gat 2 -> 9/133 khung nhan nham la tieng noi
+        #     gat 3 -> 0/133
+        # Chin khung do khong du de chot sai, nhung moi khung lai DAT LAI bo
+        # dem im lang, du de pha luon viec chot cau.
+        if aggressiveness is None:
+            aggressiveness = int(os.environ.get("VAD_AGGRESSIVENESS", "3"))
         import webrtcvad
         self.vad = webrtcvad.Vad(aggressiveness)
         self.silence_ms = silence_ms
@@ -167,22 +206,52 @@ class SpeechDetector:
         self.reset()
 
     def reset(self):
+        self.hist = []            # nang luong tung khung, de do san nhieu
+        self.last_thr = 0.0
+        self.voiced_frames = 0
         self.speech_ms = 0
         self.quiet_ms = 0
         self.total_ms = 0
         self.started = False
+
+    def stats(self) -> str:
+        """Mot dong de ghi log — nhin la biet nguong co hop voi mic khong."""
+        if not self.hist:
+            return "chua co khung nao"
+        h = np.array(self.hist)
+        return ("nang luong khung: san %.0f  trung vi %.0f  dinh %.0f  |  "
+                "nguong dung %.0f  |  %d/%d khung tinh la tieng noi"
+                % (np.percentile(h, 25), np.median(h), h.max(),
+                   self.last_thr, self.voiced_frames, len(h)))
 
     def feed(self, pcm: np.ndarray) -> bool:
         """Nem vao PCM (bao nhieu cung duoc). True = nguoi noi da dut cau."""
         for i in range(0, len(pcm) - VAD_FRAME_SAMPLES + 1, VAD_FRAME_SAMPLES):
             f = pcm[i:i+VAD_FRAME_SAMPLES]
             self.total_ms += VAD_FRAME_MS
-            loud = float(np.abs(f.astype(np.float32)).mean()) >= self.energy
+
+            # NGUONG THICH NGHI, khong phai so co dinh.
+            #
+            # Truoc day so voi hang so 200 (chi -44 dBFS). Doc log Fly ngay
+            # 06/10: luot nao cung dung 250 goi = 15.0s, tuc LUON cham tran
+            # max_ms chu VAD CHUA BAO GIO thay im lang. Tieng on phong vuot
+            # 200 de dang nen khung nao cung bi tinh la dang noi, quiet_ms
+            # bi dat lai lien tuc. Ha silence_ms xuong 350 vi the vo tac dung.
+            #
+            # Gio do san nhieu ngay trong luc nghe (phan vi 25 cua cac khung
+            # da qua) roi doi tieng noi phai vuot hon no NOISE_RATIO lan.
+            e = float(np.abs(f.astype(np.float32)).mean())
+            self.hist.append(e)
+            floor = float(np.percentile(self.hist[-300:], 25)) if len(self.hist) >= 25 else 0.0
+            thr = max(self.energy, floor * self.noise_ratio)
+            self.last_thr = thr
+            loud = e >= thr
             try:
                 voiced = loud and self.vad.is_speech(f.tobytes(), SAMPLE_RATE)
             except Exception:
                 voiced = loud
             if voiced:
+                self.voiced_frames += 1
                 self.speech_ms += VAD_FRAME_MS
                 self.quiet_ms = 0
                 if self.speech_ms >= self.min_speech_ms:

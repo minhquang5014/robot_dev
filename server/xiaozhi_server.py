@@ -97,7 +97,7 @@ DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
 
 # dB cong vao tieng TTS truoc khi ma hoa (audio.boost). 10 ~ day dinh xAI tu
 # -7 len sat 0 dB roi them 3 dB be mem; trung binh -20 -> ~-10 dBFS, 0% cham tran.
-GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "10"))
+GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "6"))   # xem ghi chu boost() trong audio.py
 
 
 class Session:
@@ -175,6 +175,10 @@ class Session:
         # nghia la rot goi hoac khung khac 60 ms.
         log.info("  listen STOP%s: %d goi, %d byte, %.1f s thuc te, %.1f s theo so goi x 60ms",
                  f" ({reason})" if reason else "", self.frames, self.bytes, secs, self.frames * 0.06)
+        # In luon so lieu VAD. Khong co dong nay thi khong biet nguong co hop
+        # voi mic khong — da tung mat cong doan mo: moi luot deu dung 15.0s
+        # vi cham tran max_ms, ma log cu chi noi "VAD thay dut cau".
+        log.info("  VAD: %s", self.det.stats())
 
     async def abort(self, reason: str = ""):
         """Nguoi dung cat loi: huy tac vu tra loi dang chay."""
