@@ -12,6 +12,12 @@ primary_region = 'sin'
   LLM_MODEL = 'qwen/qwen3.8-27b'
   TTS_GAIN_DB = '12'
   TTS_HPF_HZ = '300'
+  # Tinh chỉnh VAD cho mic thật, đặt ngày 06/10/2026. Trước đây ba số này chỉ
+  # nằm trong `fly secrets` nên không có trong git — mất máy là mất tinh chỉnh.
+  # Chúng không phải khoá bí mật, chỗ của chúng là ở đây.
+  VAD_ENERGY = '3000'
+  VAD_NOISE_RATIO = '2.0'
+  VAD_SILENCE_MS = '550'
   # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
   PUBLIC_BASE_URL = 'https://xiaozhi-esp32-server.fly.dev'
 
