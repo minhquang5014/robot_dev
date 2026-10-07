@@ -97,7 +97,12 @@ DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
 
 # dB cong vao tieng TTS truoc khi ma hoa (audio.boost). 10 ~ day dinh xAI tu
 # -7 len sat 0 dB roi them 3 dB be mem; trung binh -20 -> ~-10 dBFS, 0% cham tran.
-GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "6"))   # xem ghi chu boost() trong audio.py
+GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "12"))  # xem ghi chu boost() trong audio.py
+# Cat tieng TTS duoi tan so nay TRUOC khi tang gain. Loa nho gan nhu khong phat
+# duoc phan tram, no chi chiem cho tran. Do 07/10/2026 sau Opus, trong dai >300 Hz
+# (loa nghe duoc): +6 dB khong cat -28,0 dBFS; cat 300 Hz + 12 dB -24,2 dBFS
+# (to hon 3,8 dB), 1 mau cham 0.99 trong 5,8 s. 0 = khong cat.
+TTS_HPF_HZ = float(os.environ.get("TTS_HPF_HZ", "300"))
 
 
 class Session:
@@ -114,6 +119,7 @@ class Session:
         self.dump = None
 
         self.dec = audio.OpusDecoder()
+        self.hpf = audio.HighPass()   # bo u tram duoi 120 Hz TRUOC VAD va STT
         self.det = audio.SpeechDetector()
         self.pcm = []                 # cac manh PCM cua luot dang nghe
         self.collecting = False
@@ -150,6 +156,7 @@ class Session:
         pcm = self.dec.decode(payload)
         if not len(pcm):
             return False
+        pcm = self.hpf.process(pcm)
         self.pcm.append(pcm)
         # Che do manual: nguoi dung nha nut moi dung, khong tu doan.
         if self.mode == "manual":
@@ -212,6 +219,7 @@ async def respond(sess: Session, pcm: np.ndarray):
 
     turn = pipeline.Turn()
     enc = audio.OpusEncoder(rate=audio.OUT_RATE)
+    hpf = audio.HighPass(fc=TTS_HPF_HZ, sr=audio.OUT_RATE) if TTS_HPF_HZ > 0 else None
     pacer = audio.Pacer()
     started = False
     carry = b""          # byte le con du giua hai chunk HTTP
@@ -253,7 +261,10 @@ async def respond(sess: Session, pcm: np.ndarray):
                     carry = b""
                 if not buf:
                     continue
-                samples = audio.boost(np.frombuffer(buf, dtype=np.int16), GAIN_DB)
+                samples = np.frombuffer(buf, dtype=np.int16)
+                if hpf:
+                    samples = hpf.process(samples)
+                samples = audio.boost(samples, GAIN_DB)
                 await send_pkts(enc.encode(samples))
             await send_pkts(enc.flush())
     except pipeline.NoSpeech as e:
