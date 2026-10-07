@@ -38,6 +38,11 @@ OUT_RATE = 24000
 VAD_FRAME_MS = 30                                   # webrtcvad chi nhan 10/20/30
 VAD_FRAME_SAMPLES = SAMPLE_RATE * VAD_FRAME_MS // 1000
 
+# Im lau hon muc nay khi CHUA vao cau thi coi nhu cu nhieu vua roi khong phai
+# tieng noi, xoa speech_ms di dem lai. Chi anh huong luc do "da bat dau noi
+# chua", khong lien quan den silence_ms (cho chot cuoi cau).
+ONSET_GAP_MS = 300
+
 
 class OpusDecoder:
     """Goi Opus tho -> PCM int16 mono 16 kHz."""
@@ -244,6 +249,7 @@ class SpeechDetector:
         self.quiet_ms = 0
         self.total_ms = 0
         self.started = False
+        self.timed_out = False    # cham tran max_ms ma chua nghe thay tieng noi
 
     def stats(self) -> str:
         """Mot dong de ghi log — nhin la biet nguong co hop voi mic khong."""
@@ -289,11 +295,21 @@ class SpeechDetector:
                     self.started = True
             else:
                 self.quiet_ms += VAD_FRAME_MS
+                # Tieng noi phai LIEN TUC moi tinh la vao cau. Truoc day
+                # speech_ms chi cong len, khong bao gio xoa, nen 10 cu nhieu
+                # roi rac suot 20 giay van don du 300 ms de lat started —
+                # dung cai da thay trong log Fly 13:41 ngay 07/10/2026.
+                if not self.started and self.quiet_ms >= ONSET_GAP_MS:
+                    self.speech_ms = 0
             if self.started and self.quiet_ms >= self.silence_ms:
                 return True
             if self.total_ms >= self.max_ms:
-                # Het gio. Chi coi la co cau noi neu that su nghe thay gi do.
-                return self.started
+                # Het gio thi PHAI dung, du chua nghe thay gi. Truoc day cho
+                # nay `return self.started`: started con False thi tra ve False
+                # va luot CHAY VO HAN — log 07/10 co luot 28,5 s voi tran 15 s.
+                # Bao cho ben goi biet la luot rong de khoi ton mot lan STT.
+                self.timed_out = not self.started
+                return True
         return False
 
 

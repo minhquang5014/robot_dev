@@ -315,8 +315,17 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                 if session.on_audio(msg.data) and session.task is None:
                     # VAD bao nguoi noi dut cau. Chot audio roi tra loi trong
                     # task rieng de vong lap nay con nhan duoc `abort`.
-                    session.stop_listen("VAD thay dut cau")
+                    rong = session.det.timed_out
+                    session.stop_listen("het gio, khong co tieng noi" if rong
+                                        else "VAD thay dut cau")
                     pcm = session.take_pcm()
+                    if rong:
+                        # Cham tran thoi gian ma chua he nghe thay tieng noi.
+                        # Gui len STT thi Whisper bia ra cau ("Hay subscribe
+                        # cho kenh..."), ton mot vong goi API va mot lan ghi
+                        # dia. Nghe lai tu dau luon.
+                        session.start_listen(session.mode)
+                        continue
                     session.task = asyncio.create_task(respond(session, pcm))
 
                     def _done(t, _s=session):

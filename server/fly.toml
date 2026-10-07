@@ -12,10 +12,17 @@ primary_region = 'sin'
   LLM_MODEL = 'qwen/qwen3.8-27b'
   TTS_GAIN_DB = '12'
   TTS_HPF_HZ = '300'
-  # Tinh chỉnh VAD cho mic thật, đặt ngày 06/10/2026. Trước đây ba số này chỉ
-  # nằm trong `fly secrets` nên không có trong git — mất máy là mất tinh chỉnh.
-  # Chúng không phải khoá bí mật, chỗ của chúng là ở đây.
-  VAD_ENERGY = '3000'
+  # Tinh chỉnh VAD cho mic thật. Ba số này từng chỉ nằm trong `fly secrets`
+  # nên không có trong git — mất máy là mất tinh chỉnh. Chúng không phải khoá
+  # bí mật, chỗ của chúng là ở đây.
+  #
+  # 3000 -> 1000 ngày 07/10/2026. Số 3000 đặt hôm trước là để bù tiếng ù trầm,
+  # mà audio.HighPass giờ đã lọc sạch tiếng ù đó. Sàn nhiễu đo trên mic thật
+  # sau khi lọc chỉ còn 98 / 504 / 523 / 762 qua bốn lượt, nên 3000 ghim ngưỡng
+  # ở mức gấp 4-30 lần sàn và chặn luôn ngưỡng thích nghi (sàn x 2,0 ~ 1000).
+  # Hậu quả trong log 13:41-13:42: lượt im lặng chỉ có 10/721 khung tính là
+  # tiếng nói, chạy 15-28 giây mới chốt.
+  VAD_ENERGY = '1000'
   VAD_NOISE_RATIO = '2.0'
   VAD_SILENCE_MS = '550'
   # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
