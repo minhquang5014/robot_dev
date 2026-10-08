@@ -28,6 +28,11 @@ OLED SSD1306     ESP32            +/-     ->      loa 4-8Ω
   GND    ->      GND          Nút BOOT (GPIO0, có sẵn) = bắt đầu/dừng hội thoại
   SDA    ->      GPIO4        GPIO19 = giả lập câu đánh thức
   SCL    ->      GPIO15       GPIO5  = bộ đàm, giữ để nói
+
+Hông trái	GPIO13
+Hông phải	GPIO22
+Cổ chân trái	GPIO21
+Cổ chân phải	GPIO23
 ```
 
 Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định điện áp flash lúc boot.
