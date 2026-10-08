@@ -128,6 +128,7 @@ class Session:
         self.task = None              # tac vu tra loi dang chay
         self.turn = 0
         self.cleanup = []             # tep tam cua luot dang chay
+        self.mcp_id = 0               # id JSON-RPC cho lenh MCP gui xuong
 
     # ---------------------------------------------------------- nghe
     def start_listen(self, mode: str):
@@ -230,6 +231,19 @@ async def respond(sess: Session, pcm: np.ndarray):
         await ws.send_json({"type": "llm", "text": "", "emotion": name})
         log.info("  >> llm emotion=%s  (%.0f ms)", name, (time.monotonic()-t0)*1000)
 
+    async def on_action(name):
+        # MCP JSON-RPC thang toi tool cua firmware; khong can initialize truoc
+        # (mcp_server.cc chi doi jsonrpc 2.0 + id so). Thiet bi tra loi bang
+        # mot tin "mcp" — vong lap handle_ws ghi log.
+        action, direction = pipeline.ACTIONS[name]
+        sess.mcp_id += 1
+        await ws.send_json({"session_id": sess.id, "type": "mcp", "payload": {
+            "jsonrpc": "2.0", "id": sess.mcp_id, "method": "tools/call",
+            "params": {"name": "self.otto.action",
+                       "arguments": {"action": action, "direction": direction}}}})
+        log.info("  >> dong tac %s -> self.otto.action(%s, %d)  (%.0f ms)",
+                 name, action, direction, (time.monotonic()-t0)*1000)
+
     async def send_pkts(pkts):
         for p in pkts:
             await pacer.wait()
@@ -238,7 +252,7 @@ async def respond(sess: Session, pcm: np.ndarray):
     try:
         gen = pipeline.run_turn_stream(turn, audio_path=src, history=sess.history,
                                        on_emotion=on_emotion, pcm=True,
-                                       pcm_rate=audio.OUT_RATE)
+                                       pcm_rate=audio.OUT_RATE, on_action=on_action)
         async with contextlib.aclosing(gen):
             async for chunk in gen:
                 if not started:

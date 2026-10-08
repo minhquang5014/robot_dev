@@ -79,6 +79,26 @@ EMOTION_ALIASES = {
     "puzzled": "confused", "worried": "confused",
 }
 
+# Dong tac robot lam duoc — tool self.otto.action trong firmware
+# (boards/bread-compact-esp32/otto_controller_simple.h). LLM gan tag dong tac
+# ngay sau tag cam xuc, server goi MCP tools/call xuong thiet bi. Khong dung
+# function calling cua LLM: them mot vong goi API va hay vo khi stream.
+#   ten tag -> (action, direction) cua firmware; direction 1 = toi/trai
+ACTIONS = {
+    "walk": ("walk", 1), "walk_back": ("walk", -1),
+    "turn_left": ("turn", 1), "turn_right": ("turn", -1),
+    "jump": ("jump", 1), "dance": ("tiptoe", 1), "home": ("home", 1),
+}
+
+
+def find_action(raw: str) -> str:
+    """Tag dong tac dau tien trong cau tra loi, hoac "" neu khong co."""
+    for tag in re.findall(r"\[([a-zA-Z_]+)\]", raw or ""):
+        if tag.lower() in ACTIONS:
+            return tag.lower()
+    return ""
+
+
 SYSTEM_PROMPT = """
 Bạn là một robot để bàn nhỏ, tên là Mơ. Bạn nói tiếng Việt.
 
@@ -95,10 +115,15 @@ Luật bắt buộc:
    Câu trả lời sẽ được đọc thành tiếng, chữ không dấu sẽ bị đọc sai hoàn toàn.
 5. Phản ứng đúng vào điều cậu ấy vừa nói, mỗi lần một kiểu khác nhau.
    Ví dụ bên dưới chỉ minh hoạ ĐỊNH DẠNG, tuyệt đối không chép lại nội dung.
+6. Tớ có hai chân. CHỈ KHI cậu ấy bảo tớ di chuyển, nhảy, múa, quay, đi, đứng yên,
+   thì thêm ĐÚNG MỘT tag động tác ngay sau tag cảm xúc: [walk] đi tới, [walk_back]
+   lùi lại, [turn_left] quay trái, [turn_right] quay phải, [jump] nhảy, [dance] nhảy
+   múa, [home] đứng thẳng. Không được bảo thì KHÔNG thêm tag động tác.
 
 Ví dụ định dạng:
 [surprised] Ơ, thật hả? Kể tớ nghe tiếp đi!
 [sleepy] Tớ buồn ngủ díp cả mắt rồi nè.
+[joyful][dance] Xem tớ lắc lư nè!
 """
 
 # Model reasoning dot token suy nghi an BEN TRONG max_tokens. De 150 thi
@@ -112,6 +137,7 @@ class Turn:
     transcript: str = ""
     emotion: str = "neutral"
     emotion_raw: str = ""      # tag nguyen van LLM tra ve, de biet co bi quy doi
+    action: str = ""           # tag dong tac (ACTIONS), "" neu khong co
     reply: str = ""
     audio_path: str = ""
     ms_stt: int = 0
@@ -537,7 +563,7 @@ def run_turn(audio_path: str, out_path: str, history: list = None) -> Turn:
 
 async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
                           history: list = None, on_emotion=None, pcm: bool = False,
-                          pcm_rate: int = 16000):
+                          pcm_rate: int = 16000, on_action=None):
     """Async generator: dien dan `turn`, yield chunk audio ngay khi co.
 
     `on_emotion(ten)` duoc goi NGAY khi tag cam xuc ve tu LLM — khoang 300ms,
@@ -585,6 +611,13 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
                     {"role": "user", "content": turn.transcript},
                     {"role": "assistant", "content": raw}]
     turn.ms_llm = int((time.perf_counter() - t0) * 1000)
+
+    # Dong tac gui TRUOC TTS de robot vua nhun vua bat dau noi.
+    turn.action = find_action(raw)
+    if turn.action and on_action:
+        res = on_action(turn.action)
+        if asyncio.iscoroutine(res):
+            await res
 
     # Doc CA cau mot lan thay vi cat tung menh de: xAI TTS ton ~215ms co dinh
     # cho moi lan goi va gan nhu khong doi theo do dai, nen cat lam hai khuc
