@@ -239,10 +239,15 @@ class SpeechDetector:
         self.min_speech_ms = min_speech_ms
         self.max_ms = max_ms
         self.energy = energy
+        # Nang luong tung khung de do san nhieu. Song QUA cac luot, khong xoa
+        # o reset(): xoa thi 0.75 s dau moi luot chi con nguong VAD_ENERGY, thap
+        # hon tieng on phong -> on bi tinh la tieng noi -> chot cau -> reset ->
+        # lap lai. Log Fly 08/10: cu 1.3 s mot luot y het nhau (22 goi, 24/43
+        # khung), vuot gioi han Groq 20 STT/phut, cau that bi 429.
+        self.hist = []
         self.reset()
 
     def reset(self):
-        self.hist = []            # nang luong tung khung, de do san nhieu
         self.last_thr = 0.0
         self.voiced_frames = 0
         self.speech_ms = 0
@@ -255,7 +260,7 @@ class SpeechDetector:
         """Mot dong de ghi log — nhin la biet nguong co hop voi mic khong."""
         if not self.hist:
             return "chua co khung nao"
-        h = np.array(self.hist)
+        h = np.array(self.hist[-300:])
         return ("nang luong khung: san %.0f  trung vi %.0f  dinh %.0f  |  "
                 "nguong dung %.0f  |  %d/%d khung tinh la tieng noi"
                 % (np.percentile(h, 25), np.median(h), h.max(),
@@ -279,7 +284,12 @@ class SpeechDetector:
             # da qua) roi doi tieng noi phai vuot hon no NOISE_RATIO lan.
             e = float(np.abs(f.astype(np.float32)).mean())
             self.hist.append(e)
-            floor = float(np.percentile(self.hist[-300:], 25)) if len(self.hist) >= 25 else 0.0
+            if len(self.hist) > 600:
+                del self.hist[:-300]
+            # Chua do du san nhieu (0.75 s dau cua ca ket noi) thi chua cho bat cau.
+            if len(self.hist) < 25:
+                continue
+            floor = float(np.percentile(self.hist[-300:], 25))
             thr = max(self.energy, floor * self.noise_ratio)
             self.last_thr = thr
             loud = e >= thr
