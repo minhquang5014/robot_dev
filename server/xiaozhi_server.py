@@ -105,6 +105,13 @@ GAIN_DB = float(os.environ.get("TTS_GAIN_DB", "12"))
 # (to hon 3,8 dB), 1 mau cham 0.99 trong 5,8 s. 0 = khong cat.
 TTS_HPF_HZ = float(os.environ.get("TTS_HPF_HZ", "300"))
 
+# Che do goi ten. Luon nghe ma tra loi MOI cau thi o van phong no tra loi ca
+# nguoi khac (log 08/10: phan lon 20 luot la nguoi khac noi chuyen). Gio phai
+# co "Mơ" trong cau, tru khi robot vua noi xong chua qua WAKE_WINDOW_S giay —
+# de hoi tiep khong phai goi ten lai. WAKE_REQUIRED=0 de tat.
+WAKE_REQUIRED = os.environ.get("WAKE_REQUIRED", "1").strip() not in ("0", "false", "")
+WAKE_WINDOW_S = float(os.environ.get("WAKE_WINDOW_S", "20"))
+
 
 class Session:
     """Mot ket noi WebSocket: gom audio nguoi noi, chay pipeline, phat tra loi."""
@@ -129,6 +136,15 @@ class Session:
         self.turn = 0
         self.cleanup = []             # tep tam cua luot dang chay
         self.mcp_id = 0               # id JSON-RPC cho lenh MCP gui xuong
+        self.last_spoke = 0.0         # monotonic luc robot noi xong cau gan nhat
+
+    def accepts(self, transcript: str) -> bool:
+        """Co tra loi cau nay khong (che do goi ten)."""
+        if not WAKE_REQUIRED:
+            return True
+        if time.monotonic() - self.last_spoke < WAKE_WINDOW_S:
+            return True
+        return pipeline.is_addressed(transcript)
 
     # ---------------------------------------------------------- nghe
     def start_listen(self, mode: str):
@@ -252,7 +268,8 @@ async def respond(sess: Session, pcm: np.ndarray):
     try:
         gen = pipeline.run_turn_stream(turn, audio_path=src, history=sess.history,
                                        on_emotion=on_emotion, pcm=True,
-                                       pcm_rate=audio.OUT_RATE, on_action=on_action)
+                                       pcm_rate=audio.OUT_RATE, on_action=on_action,
+                                       accept=sess.accepts)
         async with contextlib.aclosing(gen):
             async for chunk in gen:
                 if not started:
@@ -307,6 +324,7 @@ async def respond(sess: Session, pcm: np.ndarray):
         sess.cleanup.clear()
 
     await ws.send_json({"type": "tts", "state": "stop"})
+    sess.last_spoke = time.monotonic()
     sess.history = turn.history[-12:]      # giu 6 luot gan nhat
     log.info("  luot xong: STT %d | LLM %d | TTS %d ms | tieng dau %d ms | tong %.0f ms",
              turn.ms_stt, turn.ms_llm, turn.ms_tts, turn.ms_first_audio,

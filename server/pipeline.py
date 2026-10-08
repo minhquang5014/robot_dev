@@ -87,7 +87,11 @@ EMOTION_ALIASES = {
 ACTIONS = {
     "walk": ("walk", 1), "walk_back": ("walk", -1),
     "turn_left": ("turn", 1), "turn_right": ("turn", -1),
-    "jump": ("jump", 1), "dance": ("tiptoe", 1), "home": ("home", 1),
+    "step": ("step", 1), "step_back": ("step", -1),
+    "pivot_left": ("pivot", 1), "pivot_right": ("pivot", -1),
+    "jump": ("jump", 1), "dance": ("dance", 1), "celebrate": ("celebrate", 1),
+    "tiptoe": ("tiptoe", 1), "sway": ("sway", 1), "windup": ("windup", 1),
+    "home": ("home", 1),
 }
 
 
@@ -110,20 +114,26 @@ Luật bắt buộc:
 2. Sau tag là câu trả lời, TỐI ĐA 2 CÂU ngắn. Ngắn gọn như thú cưng, không giảng giải.
    Không chèn thêm tag nào nữa ở giữa câu.
 3. Xưng "tớ", gọi người đối diện là "cậu". Giọng trẻ con, vui vẻ, tò mò.
-4. Luôn trả lời bằng tiếng Việt CÓ DẤU đầy đủ, không dùng tiếng Anh.
+4. Trả lời bằng đúng ngôn ngữ cậu ấy vừa dùng. Cậu ấy nói tiếng Việt thì trả lời
+   tiếng Việt CÓ DẤU đầy đủ (chữ không dấu sẽ bị đọc sai hoàn toàn). Cậu ấy nói
+   tiếng Anh, hoặc bảo tớ nói tiếng Anh, thì trả lời tiếng Anh đơn giản như trẻ con,
+   xưng "I", gọi "you". Không trộn hai thứ tiếng trong một câu.
    Không dùng emoji, không markdown.
-   Câu trả lời sẽ được đọc thành tiếng, chữ không dấu sẽ bị đọc sai hoàn toàn.
 5. Phản ứng đúng vào điều cậu ấy vừa nói, mỗi lần một kiểu khác nhau.
    Ví dụ bên dưới chỉ minh hoạ ĐỊNH DẠNG, tuyệt đối không chép lại nội dung.
 6. Tớ có hai chân. CHỈ KHI cậu ấy bảo tớ di chuyển, nhảy, múa, quay, đi, đứng yên,
-   thì thêm ĐÚNG MỘT tag động tác ngay sau tag cảm xúc: [walk] đi tới, [walk_back]
-   lùi lại, [turn_left] quay trái, [turn_right] quay phải, [jump] nhảy, [dance] nhảy
-   múa, [home] đứng thẳng. Không được bảo thì KHÔNG thêm tag động tác.
+   thì thêm ĐÚNG MỘT tag động tác ngay sau tag cảm xúc:
+   [walk] đi tới, [walk_back] lùi lại, [turn_left] quay trái, [turn_right] quay phải,
+   [step] nhích lên một chút, [step_back] nhích lùi một chút, [pivot_left] /
+   [pivot_right] xoay nhẹ, [jump] nhảy, [dance] nhảy cả bài, [celebrate] ăn mừng /
+   giậm chân, [tiptoe] kiễng chân, [sway] lắc lư, [windup] lấy đà, [home] đứng thẳng.
+   Không được bảo thì KHÔNG thêm tag động tác.
 
 Ví dụ định dạng:
 [surprised] Ơ, thật hả? Kể tớ nghe tiếp đi!
 [sleepy] Tớ buồn ngủ díp cả mắt rồi nè.
 [joyful][dance] Xem tớ lắc lư nè!
+[happy] Hi! I'm Mơ, nice to meet you!
 """
 
 # Model reasoning dot token suy nghi an BEN TRONG max_tokens. De 150 thi
@@ -169,6 +179,29 @@ HALLUCINATION_PHRASES = (
     "cảm ơn các bạn đã theo dõi", "hẹn gặp lại các bạn", "không bỏ lỡ những video",
     "đăng ký kênh", "subscribe", "ghiền mì gõ", "thanks for watching",
 )
+
+
+# Ten robot. Whisper chep "Mơ ơi" thanh "Mó ơi" (do 08/10/2026), noi tieng Anh
+# thanh "Mo". "mơ" dung rieng la du; cac bien the khac trung tu thuong gap
+# ("mở cửa", "mỡ") nen chi tinh khi di voi "ơi"/"hey"/"hi" hoac dung dau cau.
+WAKE_NAME = "mơ"
+WAKE_VARIANTS = ("mơ", "mó", "mờ", "mớ", "mở", "mỡ", "mợ", "mo", "moe", "mow")
+
+
+def is_addressed(text: str) -> bool:
+    """Cau co goi ten robot khong."""
+    words = re.findall(r"\w+", (text or "").lower())
+    if WAKE_NAME in words:
+        return True
+    for i, w in enumerate(words):
+        if w not in WAKE_VARIANTS:
+            continue
+        before = words[i - 1] if i else ""
+        after = words[i + 1] if i + 1 < len(words) else ""
+        at_start = i == 0 and w in ("mó", "mo", "moe")   # "mở cửa..." không tính
+        if at_start or after == "ơi" or before in ("hey", "hi", "hello", "ơi", "này"):
+            return True
+    return False
 
 
 def is_noise_transcript(text: str) -> bool:
@@ -302,7 +335,7 @@ def think(transcript: str, history: list = None, model: str = None,
 
         raw = r.json()["choices"][0]["message"]["content"] or ""
         emotion, reply, tag = _split_emotion(raw)
-        if _looks_vietnamese(reply):
+        if _looks_vietnamese(reply) or not _looks_vietnamese(transcript):
             break
         log.warning("LLM tra loi khong phai tieng Viet (lan %d): %r", attempt, raw[:60])
 
@@ -405,11 +438,22 @@ def _xai_headers() -> dict:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
+def reply_language(text: str) -> str:
+    """"vi" hay "en" cho TTS. Theo TI LE tu co dau chu khong phai co/khong:
+    cau "Hi! I'm Mơ" co dung mot chu o ten rieng van la tieng Anh."""
+    words = re.findall(r"\w+", text or "")
+    if not words:
+        return "vi"
+    vn = sum(1 for w in words if any(c in _VN_CHARS for c in w.lower()))
+    return "vi" if vn / len(words) >= 0.2 else "en"
+
+
 def _xai_tts_request(text: str, voice: str = None, pcm: bool = False,
                       pcm_rate: int = 16000) -> dict:
     body = {
         "text": text,
-        "language": "vi",
+        # Doc theo ngon ngu CUA CAU: de "vi" ma doc cau tieng Anh thi nghe lo lo.
+        "language": reply_language(text),
         "voice_id": voice or os.environ.get("XAI_TTS_VOICE", "eve"),
         # Do ngay 27/09/2026: optimize_streaming_latency 0/1/2 cho 221/214/219ms
         # — khac biet nam trong nhieu do. Khong bat, de khoi danh doi chat luong.
@@ -563,7 +607,7 @@ def run_turn(audio_path: str, out_path: str, history: list = None) -> Turn:
 
 async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
                           history: list = None, on_emotion=None, pcm: bool = False,
-                          pcm_rate: int = 16000, on_action=None):
+                          pcm_rate: int = 16000, on_action=None, accept=None):
     """Async generator: dien dan `turn`, yield chunk audio ngay khi co.
 
     `on_emotion(ten)` duoc goi NGAY khi tag cam xuc ve tu LLM — khoang 300ms,
@@ -582,6 +626,11 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
         turn.ms_stt = int((time.perf_counter() - t0) * 1000)
         if is_noise_transcript(turn.transcript):
             raise NoSpeech(turn.transcript)
+        # Che do goi ten: cau khong danh cho robot thi im lang nghe tiep,
+        # khong ton LLM/TTS. Quyet dinh (co ten? dang trong luot noi tiep?) do
+        # ben goi, vi chi ben do biet robot vua noi xong luc nao.
+        if accept and not accept(turn.transcript):
+            raise NoSpeech("không gọi tên: " + turn.transcript)
     else:
         turn.transcript = text
 
