@@ -38,16 +38,19 @@ public:
             "(quay, 1 trái / -1 phải), step (nhích một bước nhỏ, 1 tới / -1 lui), pivot "
             "(xoay nhích, 1 trái / -1 phải), jump (nhảy), dance (cả bài nhảy), celebrate "
             "(ăn mừng, giậm chân lắc lư), tiptoe (kiễng chân giữ dáng), sway (kiễng chân "
-            "lắc lư), windup (lấy đà rồi đẩy), home (đứng thẳng). Chỉ gọi khi người dùng "
-            "YÊU CẦU robot di chuyển, không tự ý gọi.",
+            "lắc lư), windup (lấy đà rồi đẩy), home (đứng thẳng). steps: số bước/lần cho "
+            "walk, turn, step, pivot, jump, celebrate (0 = mặc định). Chỉ gọi khi người "
+            "dùng YÊU CẦU robot di chuyển, không tự ý gọi.",
             PropertyList({
                 Property("action", kPropertyTypeString, "home"),
                 Property("direction", kPropertyTypeInteger, 1, -1, 1),
+                Property("steps", kPropertyTypeInteger, 0, 0, 10),
             }),
             [this](const PropertyList& properties) -> ReturnValue {
                 std::string action = properties["action"].value<std::string>();
                 int dir = properties["direction"].value<int>() < 0 ? -1 : 1;
-                if (!StartAction(action, dir)) {
+                int steps = properties["steps"].value<int>();
+                if (!StartAction(action, dir, steps)) {
                     return "Lỗi: action không hợp lệ. Dùng: walk, turn, step, pivot, jump, "
                            "dance, celebrate, tiptoe, sway, windup, home";
                 }
@@ -70,9 +73,10 @@ private:
         OttoController* self;
         ActionType type;
         int dir;
+        int steps;  // 0 = mặc định của từng động tác
     };
 
-    bool StartAction(const std::string& action, int dir) {
+    bool StartAction(const std::string& action, int dir, int steps) {
         static const struct {
             const char* name;
             ActionType type;
@@ -95,7 +99,7 @@ private:
         if (busy_) {
             return true;  // bỏ qua lệnh mới, đánh hết lệnh đang chạy
         }
-        auto* ctx = new ActionContext{this, *type, dir};
+        auto* ctx = new ActionContext{this, *type, dir, steps};
         busy_ = true;
         xTaskCreate(&OttoController::RunAction, "otto_action", 4096, ctx, 5, nullptr);
         return true;
@@ -141,32 +145,32 @@ private:
 
     // dir 1 = tới. Lệch pha cổ chân -90*dir: bàn chân dồn trọng lượng sang chân trụ
     // đúng lúc hông đưa chân kia ra trước; đổi dấu thì đi lùi.
-    void Walk(int dir) {
+    void Walk(int dir, int steps) {
         Oscillate({30, 30, 30, 30}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90 * dir, -90 * dir},
-                  1000, 4);
+                  1000, steps);
     }
 
     // Hông bên kia xoay NGƯỢC -10 thay vì đứng yên: đo trên mô hình 3D xoay 311° /
     // trượt ngang 25mm, so với bản Otto cũ 158° / 113mm. dir 1 = trái.
-    void Turn(int dir) {
+    void Turn(int dir, int steps) {
         int A[4] = {30, 30, 30, 30};
         A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -10;
         Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90},
-                  1000, 4);
+                  1000, steps);
     }
 
     // Nhích bước nhỏ kiểu EMO: hông 8 ~ 14mm mỗi chu kỳ.
-    void Step(int dir) {
+    void Step(int dir, int steps) {
         Oscillate({8, 8, 30, 30}, {0, 0, kFootLift, -kFootLift}, {0, 0, dir * 90, dir * 90}, 900,
-                  2);
+                  steps);
     }
 
     // Xoay nhích: hông 5 / -2 ~ 14 độ mỗi chu kỳ. dir 1 = trái.
-    void Pivot(int dir) {
+    void Pivot(int dir, int steps) {
         int A[4] = {5, 5, 30, 30};
         A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -2;
         Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90},
-                  1100, 2);
+                  1100, steps);
     }
 
     void Jump(int period = 1000) {
@@ -184,7 +188,9 @@ private:
     }
 
     // Ăn mừng: hai cổ chân CÙNG pha -> thân lắc, hai bàn chân thay nhau nhấc (giậm chân).
-    void Celebrate() { Oscillate({12, -12, 22, 22}, {0, 0, 0, 0}, {0, 0, 0, 0}, 620, 4); }
+    void Celebrate(int steps) {
+        Oscillate({12, -12, 22, 22}, {0, 0, 0, 0}, {0, 0, 0, 0}, 620, steps);
+    }
 
     // Kiễng chân giữ dáng: cổ chân 50/130 (đo trên máy thật), giữ một nhịp rồi hạ.
     void TiptoeHold(int lean = 40, int reps = 2) {
@@ -225,14 +231,17 @@ private:
     static void RunAction(void* arg) {
         auto* ctx = static_cast<ActionContext*>(arg);
         auto* self = ctx->self;
+        auto n = [ctx](int def) { return ctx->steps > 0 ? ctx->steps : def; };
         switch (ctx->type) {
-            case kWalk: self->Walk(ctx->dir); break;
-            case kTurn: self->Turn(ctx->dir); break;
-            case kStep: self->Step(ctx->dir); break;
-            case kPivot: self->Pivot(ctx->dir); break;
-            case kJump: self->Jump(); break;
+            case kWalk: self->Walk(ctx->dir, n(4)); break;
+            case kTurn: self->Turn(ctx->dir, n(4)); break;
+            case kStep: self->Step(ctx->dir, n(2)); break;
+            case kPivot: self->Pivot(ctx->dir, n(2)); break;
+            case kJump:
+                for (int i = 0; i < n(1); i++) self->Jump();
+                break;
             case kDance: self->Dance(); break;
-            case kCelebrate: self->Celebrate(); break;
+            case kCelebrate: self->Celebrate(n(4)); break;
             case kTiptoe: self->TiptoeHold(); break;
             case kSway: self->Sway(); break;
             case kWindup: self->Windup(); break;

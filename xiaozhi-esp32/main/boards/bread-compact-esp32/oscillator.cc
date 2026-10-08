@@ -154,7 +154,13 @@ void Oscillator::Write(int position) {
 
     angle = std::min(std::max(angle, 0), 180);
 
-    uint32_t duty = (uint32_t)(((angle / 180.0) * 2.0 + 0.5) * 8191 / 20.0);
+    // Cùng thang xung với thư viện Servo của Arduino (544-2400 µs), vì chân robot
+    // được căn chỉnh và mọi biên độ được đo bằng test/servo_test/servo_test.ino.
+    // Bản Otto gốc dùng 500-2500 µs: 90° ra 1500 thay vì 1472 µs, lệch ~2,7° mọi
+    // servo — cộng vào lệch tâm cổ chân ±5° thì một chân nhấc ~8°, chân kia ~2°.
+    constexpr double kPulseMinMs = 0.544, kPulseMaxMs = 2.400;
+    uint32_t duty = (uint32_t)((kPulseMinMs + (angle / 180.0) * (kPulseMaxMs - kPulseMinMs)) *
+                               8191 / 20.0);
 
     ESP_ERROR_CHECK(ledc_set_duty(ledc_speed_mode_, ledc_channel_, duty));
     ESP_ERROR_CHECK(ledc_update_duty(ledc_speed_mode_, ledc_channel_));

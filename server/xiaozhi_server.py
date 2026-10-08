@@ -247,7 +247,7 @@ async def respond(sess: Session, pcm: np.ndarray):
         await ws.send_json({"type": "llm", "text": "", "emotion": name})
         log.info("  >> llm emotion=%s  (%.0f ms)", name, (time.monotonic()-t0)*1000)
 
-    async def on_action(name):
+    async def on_action(name, steps=0):
         # MCP JSON-RPC thang toi tool cua firmware; khong can initialize truoc
         # (mcp_server.cc chi doi jsonrpc 2.0 + id so). Thiet bi tra loi bang
         # mot tin "mcp" — vong lap handle_ws ghi log.
@@ -256,9 +256,10 @@ async def respond(sess: Session, pcm: np.ndarray):
         await ws.send_json({"session_id": sess.id, "type": "mcp", "payload": {
             "jsonrpc": "2.0", "id": sess.mcp_id, "method": "tools/call",
             "params": {"name": "self.otto.action",
-                       "arguments": {"action": action, "direction": direction}}}})
-        log.info("  >> dong tac %s -> self.otto.action(%s, %d)  (%.0f ms)",
-                 name, action, direction, (time.monotonic()-t0)*1000)
+                       "arguments": {"action": action, "direction": direction,
+                                     "steps": steps}}}})
+        log.info("  >> dong tac %s -> self.otto.action(%s, %d, steps=%d)  (%.0f ms)",
+                 name, action, direction, steps, (time.monotonic()-t0)*1000)
 
     async def send_pkts(pkts):
         for p in pkts:

@@ -95,12 +95,13 @@ ACTIONS = {
 }
 
 
-def find_action(raw: str) -> str:
-    """Tag dong tac dau tien trong cau tra loi, hoac "" neu khong co."""
-    for tag in re.findall(r"\[([a-zA-Z_]+)\]", raw or ""):
+def find_action(raw: str) -> tuple:
+    """(tag dong tac, so buoc) dau tien trong cau tra loi, ("", 0) neu khong co.
+    So buoc ghi kem tag: [walk:2] -> ("walk", 2). Khong ghi -> 0 = mac dinh firmware."""
+    for tag, n in re.findall(r"\[([a-zA-Z_]+)(?::(\d+))?\]", raw or ""):
         if tag.lower() in ACTIONS:
-            return tag.lower()
-    return ""
+            return tag.lower(), min(int(n or 0), 10)
+    return "", 0
 
 
 SYSTEM_PROMPT = """
@@ -127,7 +128,8 @@ Luật bắt buộc:
    [step] nhích lên một chút, [step_back] nhích lùi một chút, [pivot_left] /
    [pivot_right] xoay nhẹ, [jump] nhảy, [dance] nhảy cả bài, [celebrate] ăn mừng /
    giậm chân, [tiptoe] kiễng chân, [sway] lắc lư, [windup] lấy đà, [home] đứng thẳng.
-   Không được bảo thì KHÔNG thêm tag động tác.
+   Cậu ấy nói số bước / số lần thì ghi số sau dấu hai chấm: "tiến 2 bước" -> [walk:2],
+   "nhảy 3 cái" -> [jump:3]. Không được bảo thì KHÔNG thêm tag động tác.
 
 Ví dụ định dạng:
 [surprised] Ơ, thật hả? Kể tớ nghe tiếp đi!
@@ -276,7 +278,7 @@ def _strip_stray_tags(text: str) -> str:
     Model nho doi khi chen them tag o giua ("... cau sao roi? [laughing] To dang
     cho keo"). Khong loc thi TTS se doc to chu "laughing" ra loa.
     """
-    return re.sub(r"\s*\[[a-zA-Z_]+\]\s*", " ", text).strip()
+    return re.sub(r"\s*\[[a-zA-Z_]+(?::\d+)?\]\s*", " ", text).strip()
 
 
 _VN_CHARS = set("àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡ"
@@ -662,9 +664,9 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
     turn.ms_llm = int((time.perf_counter() - t0) * 1000)
 
     # Dong tac gui TRUOC TTS de robot vua nhun vua bat dau noi.
-    turn.action = find_action(raw)
+    turn.action, steps = find_action(raw)
     if turn.action and on_action:
-        res = on_action(turn.action)
+        res = on_action(turn.action, steps)
         if asyncio.iscoroutine(res):
             await res
 
