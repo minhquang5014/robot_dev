@@ -107,7 +107,7 @@ TTS_HPF_HZ = float(os.environ.get("TTS_HPF_HZ", "300"))
 
 # Che do goi ten. Luon nghe ma tra loi MOI cau thi o van phong no tra loi ca
 # nguoi khac (log 08/10: phan lon 20 luot la nguoi khac noi chuyen). Gio phai
-# co "Mơ" trong cau, tru khi robot vua noi xong chua qua WAKE_WINDOW_S giay —
+# co ten robot (pipeline.ROBOT_NAME) trong cau, tru khi robot vua noi xong chua qua WAKE_WINDOW_S giay —
 # de hoi tiep khong phai goi ten lai. WAKE_REQUIRED=0 de tat.
 WAKE_REQUIRED = os.environ.get("WAKE_REQUIRED", "1").strip() not in ("0", "false", "")
 WAKE_WINDOW_S = float(os.environ.get("WAKE_WINDOW_S", "20"))

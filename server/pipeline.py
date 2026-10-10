@@ -105,7 +105,7 @@ def find_action(raw: str) -> tuple:
 
 
 SYSTEM_PROMPT = """
-Bạn là một robot để bàn nhỏ, tên là Mơ. Bạn nói tiếng Việt.
+Bạn là một robot để bàn nhỏ, tên là Peter. Bạn nói tiếng Việt.
 
 Luật bắt buộc:
 1. Bắt đầu MỌI câu trả lời bằng đúng MỘT tag cảm xúc trong ngoặc vuông. CHỈ được
@@ -135,7 +135,7 @@ Ví dụ định dạng:
 [surprised] Ơ, thật hả? Kể tớ nghe tiếp đi!
 [sleepy] Tớ buồn ngủ díp cả mắt rồi nè.
 [joyful][dance] Xem tớ lắc lư nè!
-[happy] Hi! I'm Mơ, nice to meet you!
+[happy] Hi! I'm Peter, nice to meet you!
 """
 
 # Model reasoning dot token suy nghi an BEN TRONG max_tokens. De 150 thi
@@ -183,32 +183,29 @@ HALLUCINATION_PHRASES = (
 )
 
 
-# Ten robot. Whisper chep "Mơ ơi" thanh "Mó ơi" (do 08/10/2026), noi tieng Anh
-# thanh "Mo". "mơ" dung rieng la du; cac bien the khac trung tu thuong gap
-# ("mở cửa", "mỡ") nen chi tinh khi di voi "ơi"/"hey"/"hi" hoac dung dau cau.
-WAKE_NAME = "mơ"
-WAKE_VARIANTS = ("mơ", "mó", "mờ", "mớ", "mở", "mỡ", "mợ", "mo", "moe", "mow")
+# Ten robot. Doi tu "Mơ" sang "Peter" ngay 10/10/2026: "Mơ" ngan, trung chu
+# tieng Viet thuong gap ("mở", "mỡ"), goi mai robot khong nghe ra. "P" bat hoi
+# ro hon han. Khong co goi y, Whisper chep "Peter ơi" thanh "Ghi tờ ơi", "Gita
+# ơi", "ký tờ" — giu ca cac bien the do phong khi goi y khong an.
+ROBOT_NAME = "Peter"
+STT_PROMPT = ROBOT_NAME + " ơi."
+WAKE_PATTERN = re.compile(
+    r"\b(peter|pete|pita|peta|pitơ|pi tơ|pi tờ|bi tơ|ghi tờ|ghi tơ|gita|kỳ tờ|ký tờ|pít tơ)\b")
 
 
 def is_addressed(text: str) -> bool:
     """Cau co goi ten robot khong."""
-    words = re.findall(r"\w+", (text or "").lower())
-    if WAKE_NAME in words:
-        return True
-    for i, w in enumerate(words):
-        if w not in WAKE_VARIANTS:
-            continue
-        before = words[i - 1] if i else ""
-        after = words[i + 1] if i + 1 < len(words) else ""
-        at_start = i == 0 and w in ("mó", "mo", "moe")   # "mở cửa..." không tính
-        if at_start or after == "ơi" or before in ("hey", "hi", "hello", "ơi", "này"):
-            return True
-    return False
+    return bool(WAKE_PATTERN.search((text or "").lower()))
 
 
 def is_noise_transcript(text: str) -> bool:
     t = (text or "").strip().lower()
     if len(t) < 2:
+        return True
+    # Whisper lap lai nguyen cau goi y khi chi nghe tieng on: 5/8 doan on cua mic
+    # that ra dung "Peter ơi." (do 10/10/2026). Goi ten tron khong kem gi cung
+    # bi bo — phai noi kem cau lenh: "Peter ơi, nhảy đi".
+    if re.sub(r"[^\w\s]", "", t).strip() == re.sub(r"[^\w\s]", "", STT_PROMPT.lower()).strip():
         return True
     return any(p in t for p in HALLUCINATION_PHRASES)
 
@@ -242,7 +239,12 @@ def speech_to_text(audio_path: str, model: str = None) -> str:
                 "model": model,
                 # Ep tieng Viet. Bo dong nay thi Whisper doan ngon ngu, va
                 # cau tieng Viet ngan rat hay bi doan nham thanh tieng Trung.
+                # Cau tieng Anh van chep dung (do 08/10/2026).
                 "language": "vi",
+                # Goi y ten robot. Khong co thi "Peter ơi" ra "Ghi tờ ơi",
+                # "Gita ơi" (do 10/10/2026). Cai gia: tieng on bi chep thanh
+                # dung cau goi y -> is_noise_transcript() loai cau trung y het.
+                "prompt": STT_PROMPT,
             },
             timeout=120,
         )
