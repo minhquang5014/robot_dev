@@ -205,7 +205,10 @@ def is_noise_transcript(text: str) -> bool:
     # Whisper lap lai nguyen cau goi y khi chi nghe tieng on: 5/8 doan on cua mic
     # that ra dung "Peter ơi." (do 10/10/2026). Goi ten tron khong kem gi cung
     # bi bo — phai noi kem cau lenh: "Peter ơi, nhảy đi".
-    if re.sub(r"[^\w\s]", "", t).strip() == re.sub(r"[^\w\s]", "", STT_PROMPT.lower()).strip():
+    # Ca khi lap nhieu lan ("Peter ơi. Peter ơi. Peter ơi." — log Fly 10/10) —
+    # bo het cau goi y ra, khong con gi thi la tieng on.
+    prompt = re.sub(r"[^\w\s]", "", STT_PROMPT.lower()).strip()
+    if not re.sub(r"[^\w\s]", " ", t).replace(prompt, " ").strip():
         return True
     return any(p in t for p in HALLUCINATION_PHRASES)
 
