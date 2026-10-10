@@ -45,11 +45,23 @@ public:
                 Property("action", kPropertyTypeString, "home"),
                 Property("direction", kPropertyTypeInteger, 1, -1, 1),
                 Property("steps", kPropertyTypeInteger, 0, 0, 10),
+                // Ba nút giống servo_dash.py; 0 / -1 = giữ giá trị đang dùng.
+                Property("period", kPropertyTypeInteger, 0, 0, 3000),  // chu kỳ walk/turn, ms
+                Property("amp", kPropertyTypeInteger, 0, 0, 150),      // biên độ, %
+                Property("lift", kPropertyTypeInteger, -1, -1, 25),    // lệch tâm cổ chân, độ
             }),
             [this](const PropertyList& properties) -> ReturnValue {
                 std::string action = properties["action"].value<std::string>();
                 int dir = properties["direction"].value<int>() < 0 ? -1 : 1;
                 int steps = properties["steps"].value<int>();
+                if (!busy_) {
+                    int v = properties["period"].value<int>();
+                    if (v >= 400) period_ = v;
+                    v = properties["amp"].value<int>();
+                    if (v >= 20) amp_pct_ = v;
+                    v = properties["lift"].value<int>();
+                    if (v >= 0) lift_ = v;
+                }
                 if (!StartAction(action, dir, steps)) {
                     return "Lỗi: action không hợp lệ. Dùng: walk, turn, step, pivot, jump, "
                            "dance, celebrate, tiptoe, sway, windup, home";
@@ -59,8 +71,12 @@ public:
     }
 
 private:
-    static constexpr int kFootLift = 5;   // lệch tâm cổ chân — nút quyết định độ nhấc chân
     static constexpr int kRefreshMs = 20;
+
+    // Giống biến toàn cục của servo_test.ino, chỉnh được qua MCP (period/amp/lift).
+    int lift_ = 5;        // footLift: lệch tâm cổ chân — nút quyết định độ nhấc chân
+    int period_ = 1000;   // chu kỳ walk/turn; "nhịp êm" của dashboard là 1800
+    int amp_pct_ = 100;   // ampScale x100; "nhịp êm" là 70
 
     Otto otto_;
     bool busy_ = false;
@@ -107,19 +123,35 @@ private:
 
     // ---- hai viên gạch, giống moveServos() / oscillate() của sketch ----
 
-    void Move(int ms, const int (&target)[4]) {
-        int t[SERVO_COUNT] = {target[0], target[1], target[2], target[3], 90, 90};
-        otto_.MoveServos(ms, t);
+    // Nội suy TUYẾN TÍNH từng 20 ms như moveServos() của sketch. Otto::MoveServos
+    // dùng EaseOutCubic (chậm dần ở cuối) nên nhịp đặt chân và về nghỉ khác sketch.
+    void Write(const int (&p)[4]) {
+        int t[SERVO_COUNT] = {p[0], p[1], p[2], p[3], 90, 90};
+        otto_.MoveServos(0, t);
         std::copy(t, t + SERVO_COUNT, pose_);
+    }
+
+    void Move(int ms, const int (&target)[4]) {
+        int from[4] = {pose_[0], pose_[1], pose_[2], pose_[3]};
+        int n = std::max(1, ms / kRefreshMs);
+        for (int k = 1; k <= n; k++) {
+            int p[4];
+            for (int i = 0; i < 4; i++) {
+                p[i] = (int)std::lround(from[i] + (target[i] - from[i]) * (float)k / n);
+            }
+            Write(p);
+            vTaskDelay(pdMS_TO_TICKS(kRefreshMs));
+        }
     }
 
     // góc = 90 + O + A*sin(2π t/period + pha). Đặt chân vào tư thế t=0 trước.
     void Oscillate(const int (&A)[4], const int (&O)[4], const int (&ph)[4], int period,
                    float cycles) {
+        const double amp = amp_pct_ / 100.0;   // ampScale của sketch
         int t0[4];
         int jump = 0;
         for (int i = 0; i < 4; i++) {
-            t0[i] = 90 + O[i] + (int)std::lround(A[i] * std::sin(ph[i] * M_PI / 180.0));
+            t0[i] = 90 + O[i] + (int)std::lround(A[i] * amp * std::sin(ph[i] * M_PI / 180.0));
             jump = std::max(jump, std::abs(t0[i] - pose_[i]));
         }
         if (jump > 2) {
@@ -132,9 +164,10 @@ private:
             double w = 2.0 * M_PI * (double)now / 1000.0 / period;
             int p[4];
             for (int i = 0; i < 4; i++) {
-                p[i] = 90 + O[i] + (int)std::lround(A[i] * std::sin(w + ph[i] * M_PI / 180.0));
+                p[i] = 90 + O[i] +
+                       (int)std::lround(A[i] * amp * std::sin(w + ph[i] * M_PI / 180.0));
             }
-            Move(0, p);
+            Write(p);
             vTaskDelay(pdMS_TO_TICKS(kRefreshMs));
         }
     }
@@ -146,8 +179,8 @@ private:
     // dir 1 = tới. Lệch pha cổ chân -90*dir: bàn chân dồn trọng lượng sang chân trụ
     // đúng lúc hông đưa chân kia ra trước; đổi dấu thì đi lùi.
     void Walk(int dir, int steps) {
-        Oscillate({30, 30, 30, 30}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90 * dir, -90 * dir},
-                  1000, steps);
+        Oscillate({30, 30, 30, 30}, {0, 0, lift_, -lift_}, {0, 0, -90 * dir, -90 * dir},
+                  period_, steps);
     }
 
     // Hông bên kia xoay NGƯỢC -10 thay vì đứng yên: đo trên mô hình 3D xoay 311° /
@@ -155,13 +188,13 @@ private:
     void Turn(int dir, int steps) {
         int A[4] = {30, 30, 30, 30};
         A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -10;
-        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90},
-                  1000, steps);
+        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_}, {0, 0, -90, -90},
+                  period_, steps);
     }
 
     // Nhích bước nhỏ kiểu EMO: hông 8 ~ 14mm mỗi chu kỳ.
     void Step(int dir, int steps) {
-        Oscillate({8, 8, 30, 30}, {0, 0, kFootLift, -kFootLift}, {0, 0, dir * 90, dir * 90}, 900,
+        Oscillate({8, 8, 30, 30}, {0, 0, lift_, -lift_}, {0, 0, dir * 90, dir * 90}, 900,
                   steps);
     }
 
@@ -169,13 +202,13 @@ private:
     void Pivot(int dir, int steps) {
         int A[4] = {5, 5, 30, 30};
         A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -2;
-        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90},
+        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_}, {0, 0, -90, -90},
                   1100, steps);
     }
 
-    void Jump(int period = 1000) {
-        Move(period / 2, {90, 90, 150, 30});
-        Move(period / 2, {90, 90, 90, 90});
+    void Jump() {
+        Move(period_ / 2, {90, 90, 150, 30});
+        Move(period_ / 2, {90, 90, 90, 90});
     }
 
     // Lấy đà: ngả chậm về một bên rồi bật ngược lại nhanh gấp ba.
@@ -215,8 +248,8 @@ private:
         vTaskDelay(pdMS_TO_TICKS(kBeat / 2));
         Oscillate({10, -10, 22, 22}, {0, 0, 0, 0}, {0, 0, 0, 0}, kBeat * 2, 4);
         vTaskDelay(pdMS_TO_TICKS(kBeat / 2));
-        Oscillate({7, -2, 26, 26}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90}, kBeat * 2, 1);
-        Oscillate({-2, 7, 26, 26}, {0, 0, kFootLift, -kFootLift}, {0, 0, -90, -90}, kBeat * 2, 1);
+        Oscillate({7, -2, 26, 26}, {0, 0, lift_, -lift_}, {0, 0, -90, -90}, kBeat * 2, 1);
+        Oscillate({-2, 7, 26, 26}, {0, 0, lift_, -lift_}, {0, 0, -90, -90}, kBeat * 2, 1);
         vTaskDelay(pdMS_TO_TICKS(kBeat / 2));
         Oscillate({14, -14, 26, 26}, {0, 0, 0, 0}, {0, 0, 0, 0}, (int)(kBeat * 1.4), 4);
         Move(520, {90, 90, 122, 58});

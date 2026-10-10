@@ -25,6 +25,10 @@ primary_region = 'sin'
   VAD_ENERGY = '1000'
   VAD_NOISE_RATIO = '2.0'
   VAD_SILENCE_MS = '550'
+  # Dáng đi — ba nút như servo_dash.py, xem GAIT trong xiaozhi_server.py
+  OTTO_PERIOD = '1000'
+  OTTO_AMP = '100'
+  OTTO_LIFT = '5'
   # Firmware nhận địa chỉ WebSocket từ OTA; ghi thẳng cho chắc thay vì suy từ header proxy.
   PUBLIC_BASE_URL = 'https://xiaozhi-esp32-server.fly.dev'
 

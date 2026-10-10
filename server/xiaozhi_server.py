@@ -112,6 +112,15 @@ TTS_HPF_HZ = float(os.environ.get("TTS_HPF_HZ", "300"))
 WAKE_REQUIRED = os.environ.get("WAKE_REQUIRED", "1").strip() not in ("0", "false", "")
 WAKE_WINDOW_S = float(os.environ.get("WAKE_WINDOW_S", "20"))
 
+# Dang di, giong ba nut cua test/servo_test/servo_dash.py. Gui kem moi lenh
+# dong tac nen chinh o fly.toml roi deploy la xong, khong phai nap lai firmware.
+#   OTTO_PERIOD  chu ky walk/turn (ms)   1000 = goc Otto, 1800 = "nhip em"
+#   OTTO_AMP     bien do (%)             100 = goc Otto, 70 = "nhip em"
+#   OTTO_LIFT    lech tam co chan (do)   5 ~ 5mm, 10 ~ 9.6mm, 15 ~ 13mm nhac chan
+GAIT = {"period": int(os.environ.get("OTTO_PERIOD", "1000")),
+        "amp": int(os.environ.get("OTTO_AMP", "100")),
+        "lift": int(os.environ.get("OTTO_LIFT", "5"))}
+
 
 class Session:
     """Mot ket noi WebSocket: gom audio nguoi noi, chay pipeline, phat tra loi."""
@@ -257,7 +266,7 @@ async def respond(sess: Session, pcm: np.ndarray):
             "jsonrpc": "2.0", "id": sess.mcp_id, "method": "tools/call",
             "params": {"name": "self.otto.action",
                        "arguments": {"action": action, "direction": direction,
-                                     "steps": steps}}}})
+                                     "steps": steps, **GAIT}}}})
         log.info("  >> dong tac %s -> self.otto.action(%s, %d, steps=%d)  (%.0f ms)",
                  name, action, direction, steps, (time.monotonic()-t0)*1000)
 
