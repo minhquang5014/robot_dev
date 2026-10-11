@@ -7,35 +7,60 @@ Môi trường làm việc cho ESP32 + mic I2S + khuếch đại I2S, chạy fir
 
 | Linh kiện | Chi tiết |
 |---|---|
-| MCU | ESP32-D0WD-V3, 4MB flash, **không có PSRAM** |
+| MCU | ESP32-S3-WROOM-1 **N16R8** — 16MB flash, 8MB PSRAM (octal) |
 | Mic | INMP441 (I2S) |
 | Khuếch đại | MAX98357A (I2S) + loa 4–8Ω |
 | Màn hình | OLED SSD1306 128x64 (I2C) |
+| Chân robot | 4 servo SG90/MG90S (2 hông + 2 cổ chân) |
+
+Trước 11/10/2026 dự án chạy ESP32-D0WD-V3 4MB **không có PSRAM**. Đổi sang S3 vì
+hai lý do: con cũ chết chip USB-serial (cắm 5 lần không lên cổng COM nào), và
+PSRAM là điều kiện bắt buộc để chạy wake word trên chip. Board cũ vẫn còn trong
+repo ở `main/boards/bread-compact-esp32/`.
 
 ### Sơ đồ đấu nối
 
 ```
-INMP441          ESP32          MAX98357A        ESP32
+INMP441         ESP32-S3        MAX98357A       ESP32-S3
   VDD    ->      3V3              VIN     ->      5V
   GND    ->      GND              GND     ->      GND
-  L/R    ->      GND              DIN     ->      GPIO33
-  WS     ->      GPIO25           BCLK    ->      GPIO14
-  SCK    ->      GPIO26           LRC     ->      GPIO27
-  SD     ->      GPIO32           GAIN    ->      GND (12dB)
+  L/R    ->      GND              DIN     ->      GPIO7
+  WS     ->      GPIO4            BCLK    ->      GPIO15
+  SCK    ->      GPIO5            LRC     ->      GPIO16
+  SD     ->      GPIO6            GAIN    ->      GND (12dB)
                                   SD      ->      để trống
-OLED SSD1306     ESP32            +/-     ->      loa 4-8Ω
+OLED SSD1306    ESP32-S3          +/-     ->      loa 4-8Ω
   VCC    ->      3V3
   GND    ->      GND          Nút BOOT (GPIO0, có sẵn) = bắt đầu/dừng hội thoại
-  SDA    ->      GPIO4        GPIO19 = giả lập câu đánh thức
-  SCL    ->      GPIO15       GPIO5  = bộ đàm, giữ để nói
+  SDA    ->      GPIO41       GPIO38 = giả lập câu đánh thức
+  SCL    ->      GPIO42       GPIO47 = bộ đàm, giữ để nói
 
 Hông trái	GPIO13
-Hông phải	GPIO22
+Hông phải	GPIO14
 Cổ chân trái	GPIO21
-Cổ chân phải	GPIO23
+Cổ chân phải	GPIO12
 ```
 
-Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định điện áp flash lúc boot.
+Tất cả GND chung.
+
+**Servo phải có nguồn 5V riêng**, chỉ chung mát với board. Lấy từ chân 5V của
+DevKitC-1 thì lúc servo giật sẽ kéo sụt cả đường nguồn của S3. Và `MAX98357A VIN`
+nối thẳng VBUS không qua ổn áp nào — nên cắm USB qua hub hay cáp kém là tiếng loa
+nhỏ hẳn đi. Hàn tụ ~1000 µF sát chân VIN của amp.
+
+**Chân không dùng được trên S3**, khác hẳn ESP32 cũ nên đừng chép sơ đồ cũ sang:
+
+| Chân | Lý do |
+|---|---|
+| GPIO22–25 | không tồn tại trên S3 (nhảy từ 21 sang 26) |
+| GPIO26–32 | SPI flash |
+| GPIO33–37 | PSRAM octal của bản R8 |
+| GPIO19, 20 | USB D−/D+ |
+| GPIO0, 3, 45, 46 | strapping |
+| GPIO43, 44 | UART0 (console) |
+
+GPIO12 là chân strapping trên **ESP32 cũ** nhưng **không phải** trên S3, nên ở đây
+dùng được cho servo.
 
 ## Tuỳ chỉnh so với xiaozhi gốc
 
@@ -54,15 +79,55 @@ Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định đi
 
 3. **OLED 128x64** — `CONFIG_OLED_SSD1306_128X64=y` (mặc định của board là 128x32).
 
-4. **Luôn nghe, không cần bấm nút** — `CONFIG_ALWAYS_LISTENING=y`, `main/application.cc`.
+4. **Đánh thức bằng tên "Sophia"** — `CONFIG_SR_WN_WN9_SOPHIA_TTS=y`.
 
-   Rảnh ~5 giây là tự mở hội thoại, rớt kết nối thì tự nối lại (chờ giãn dần 5 → 60 giây).
-   Bấm BOOT khi đang nghe để tạm dừng, bấm lại để nghe tiếp. Cái giá: robot trả lời
-   **mọi** câu nó nghe được (người khác nói, TV), và mỗi câu đều tốn API. Server lọc bớt
-   câu Whisper bịa ra từ tiếng ồn (`pipeline.is_noise_transcript`).
+   Thay cho `CONFIG_ALWAYS_LISTENING` cũ (rảnh ~5 giây là tự mở hội thoại). Chế độ
+   cũ làm robot trả lời **mọi** câu nó nghe được và gửi tiếng lên server 100% thời
+   gian; giờ nằm im cho tới khi nghe đúng tên.
+
+   Vì sao là "Sophia": model WakeNet đóng gói sẵn trong `esp-sr` có 75 cái, lọc bỏ
+   tiếng Trung còn 39 — **không có tiếng Việt**. Trong nhóm tên nữ, "Sophia" là cái
+   **duy nhất gọi trống được**; mọi tên khác đều buộc kèm "Hey"/"Hi" (Hey Ivy,
+   Hi Fairy…). Muốn đúng tên tiếng Việt thì phải đặt model riêng của Espressif.
+
+   Ba thứ phải khớp nhau nếu đổi tên: model trong `sdkconfig`, chuỗi
+   `WakeWordInvoke` trong board `.cc`, và `ROBOT_NAME`/`WAKE_PATTERN` trong
+   `server/pipeline.py`.
+
+   **Luồng:** nằm chờ ở Idle, không gửi gì lên mạng — mic chỉ chạy vào
+   `[VAD(WebRTC)] -> [WakeNet]` trong chip. Nghe thấy tên → giữ lại đoạn tiếng đó
+   (`CONFIG_SEND_WAKE_WORD_DATA=y`, thiếu nó thì bản ghi không chứa tên và bộ lọc
+   tên phía server loại sạch mọi lượt) → mở kênh, gửi Opus 60 ms → server quyết
+   định lượt kết thúc → trả lời → **về lại Idle**.
+
+   Lưu ý có **hai VAD làm hai việc khác nhau**: cái trong chip chỉ để gác WakeNet
+   cho đỡ tốn điện; cái trên server mới quyết định người nói đã dứt câu chưa.
+
+   Cái giá: phải gọi tên **mỗi lượt**, không nói tiếp được. Cửa sổ 20 giây hỏi tiếp
+   không cần gọi tên (`WAKE_WINDOW_S` trong `xiaozhi_server.py`) vì thế thành vô
+   dụng — thiết bị về Idle ngay nên không gửi gì lên trong quãng đó.
+
+   Hai mắt xích đã phải vá để wake word thật sự gác được, vì bật model thôi chưa đủ:
+   `application.cc` nhận `tts stop` chỉ về Idle khi chế độ là `ManualStop`, còn
+   `AutoStop` thì quay lại Listening; và chế độ `AutoStop` nghĩa là thiết bị chờ
+   server báo hết lượt, mà server lại huỷ lượt rỗng trong im lặng — nay gửi cặp
+   `tts start`+`stop` rỗng (`ket_thuc_luot`) để báo.
 
 5. **Server tự host** — `CONFIG_OTA_URL` trỏ về `https://xiaozhi-esp32-server.fly.dev/xiaozhi/ota/`
    thay vì `api.tenclass.net`. Không cần đăng ký mã trên xiaozhi.me nữa.
+
+6. **Nâng cấp qua WiFi (OTA)** — chỉ chạy được từ khi sang board 16MB.
+
+   Bảng `partitions/v2/16m.csv` có hai khe `ota_0`/`ota_1`. Board 4MB cũ chỉ có một
+   phân vùng `factory`, và hai khe cũng **không nhét vừa** 4MB — nên OTA trên nó là
+   bất khả thi, không phải chuyện cấu hình.
+
+   Firmware vốn đã có sẵn code OTA; phần thiếu là server không trả khoá `firmware`.
+   Quy trình phát hành xem `server/firmware/.gitkeep`. Server đọc phiên bản và mã
+   chip **thẳng từ file `.bin`** nên không có tệp phụ nào để lệch.
+
+   Firmware chỉ hỏi OTA **một lần lúc khởi động** (`application.cc`, `CheckNewVersion`),
+   không có hẹn giờ định kỳ — muốn nâng cấp thì bấm reset.
 
 ## Cài môi trường (macOS, không cần sudo)
 
@@ -70,7 +135,7 @@ Tất cả GND chung. **Tránh GPIO12** — chân strapping, quyết định đi
 # ESP-IDF v6.1 — xiaozhi yêu cầu >= 6.0.1, KHÔNG chạy trên 5.x
 git clone -b v6.1 --recursive --depth 1 --shallow-submodules \
     https://github.com/espressif/esp-idf.git ~/esp/esp-idf
-cd ~/esp/esp-idf && ./install.sh esp32
+cd ~/esp/esp-idf && ./install.sh esp32s3
 
 # macOS không kèm cmake/ninja cho ESP-IDF, cài vào venv của nó:
 . ~/esp/esp-idf/export.sh && python -m pip install cmake ninja
@@ -87,7 +152,7 @@ Với các sketch Arduino, cần `arduino-cli` + core `esp32:esp32`.
 ```bash
 cd xiaozhi-esp32
 . ~/esp/esp-idf/export.sh
-idf.py set-target esp32      # chỉ lần đầu
+idf.py set-target esp32s3    # chỉ lần đầu
 idf.py build
 idf.py -p /dev/cu.usbserial-XXXX flash monitor
 ```
@@ -149,7 +214,28 @@ Firmware nối ra ngoài theo **hai tầng**:
 **[`server/`](server/README.md) — server duy nhất của repo**, tự viết, deploy lên Fly.io
 bằng `fly deploy` ngay trong thư mục đó. Groq Whisper + `qwen3.8-27b` + xAI TTS, tiếng
 gửi xuống 24 kHz đúng tần số loa, có lọc câu ảo giác cho chế độ luôn nghe.
-**Chưa có:** MCP — robot chưa đi lại bằng giọng nói được (`self.otto.action` trong firmware).
+**Điều khiển chân bằng giọng nói** qua MCP: LLM gắn tag động tác ngay sau tag cảm
+xúc (`[joyful][dance]`), server gửi `tools/call self.otto.action` xuống firmware
+**trước** TTS. Cố ý không dùng function calling của LLM vì thêm một vòng gọi API
+và hay vỡ khi stream.
+
+**Điều khiển bằng chữ từ máy tính** — `server/say.py`, khỏi phải nói:
+
+```bash
+python say.py "nhảy một điệu đi"   # y như vừa nói: LLM -> cảm xúc + động tác + TTS
+python say.py --do dance           # bắn thẳng động tác, KHÔNG qua LLM, không tốn TTS
+python say.py --do walk --steps 4
+python say.py --liet-ke            # 15 động tác hợp lệ
+```
+
+`--do` mới là thứ dùng khi thử dáng đi: phải lặp cùng một lệnh hàng chục lần, mà
+mỗi lượt qua LLM là một lần gọi Groq (bản miễn phí chỉ 20 STT/phút).
+
+Hai endpoint này (`/xiaozhi/say`, `/xiaozhi/do`) mở một cửa điều khiển ra Internet
+nên **có mật khẩu**: header `Authorization: Bearer`, đặt bằng
+`fly secrets set XZ_CTRL_TOKEN=...` chứ không ghi vào `fly.toml` (tệp đó nằm trong
+git). Không đặt secret thì hai cửa **đóng** (503) chứ không mở toang. `say.py` tự
+đọc mật khẩu từ `server/.env`.
 
 Trước 06/10/2026 repo còn `fly-server/`: bọc [xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server)
 (dự án cộng đồng, đủ MCP) kèm bản vá. Đã bỏ vì chậm (đo 06/10: ~15 s tới câu trả lời đầu)
