@@ -311,7 +311,9 @@ void microStep(int dir, int reps) {
   Serial.print(F("> NHICH BUOC ")); Serial.println(dir > 0 ? F("toi") : F("lui"));
   const int A[N]  = {8, 8, 30, 30};
   const int O[N]  = {0, 0, footLift, -footLift};
-  const int ph[N] = {0, 0, dir * 90, dir * 90};
+  // Cung dau voi walk() (dir * -90). Truoc day la dir * 90 — nguoc dau, nen
+  // microStep(-1) cho pha -90 dung bang pha walk(+1): bao lui thi no tien.
+  const int ph[N] = {0, 0, dir * -90, dir * -90};
   int keep = period; period = 900;
   oscillate(A, O, ph, reps);        // khong home() giua chung cho lien mach
   period = keep;
@@ -508,10 +510,19 @@ void turn(int dir, float cycles) {
   // thanh mot ngau luc that: xoay gap doi ma gan nhu quay tai cho.
   // Lech tam cung dung chung footLift voi walk(), truoc day de footLift-1
   // nen luc quay chan con nhac THAP hon luc di thang.
+  // Sua 11/10/2026, do tren robot that:
+  //  1. NGUOC BEN — giam hong TRAI thi robot quay sang PHAI. dir 1 (trai)
+  //     phai giam hong PHAI.
+  //  2. LECH NUA CHU KY — hai chieu la anh guong nhau nhung chi khi dich pha
+  //     180 do (khong dich thi lech 60 do), ma ca hai lai khoi hanh tu cung
+  //     tu the co chan 65/55. Mot chieu buoc hut nua nhip dau nen quay thieu
+  //     goc. Cong 180 do cho chieu trai la hai ben thanh guong that.
+  //  Chieu phai giu nguyen vi do la cau hinh da do duoc dung 90 do.
   int A[N] = {30, 30, 30, 30};
-  if (dir > 0) A[LEFT_LEG] = -10; else A[RIGHT_LEG] = -10;
+  if (dir > 0) A[RIGHT_LEG] = -10; else A[LEFT_LEG] = -10;
+  const int s = (dir > 0) ? 180 : 0;
   const int O[N]  = {0, 0, footLift, -footLift};
-  const int ph[N] = {0, 0, -90, -90};
+  const int ph[N] = {0 + s, 0 + s, -90 + s, -90 + s};
   oscillate(A, O, ph, cycles);
   home();
 }

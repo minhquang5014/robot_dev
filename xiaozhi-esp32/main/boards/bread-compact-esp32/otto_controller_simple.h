@@ -185,25 +185,45 @@ private:
 
     // Hông bên kia xoay NGƯỢC -10 thay vì đứng yên: đo trên mô hình 3D xoay 311° /
     // trượt ngang 25mm, so với bản Otto cũ 158° / 113mm. dir 1 = trái.
+    // Hai sua ngay 11/10/2026, do tren robot that:
+    //
+    // 1. NGUOC BEN. Giam bien do hong TRAI lai thi robot quay sang PHAI, chu
+    //    khong phai trai — chan buoc dai hon la chan phia ngoai vong quay.
+    //    Nen dir 1 (trai) phai giam hong PHAI.
+    // 2. LECH NUA CHU KY. Hai chieu von la anh guong cua nhau (tinh ra lech
+    //    dung 0.0 do), NHUNG chi khi dich pha 180 do; khong dich thi lech
+    //    60 do. Ma ca hai chieu deu khoi hanh tu cung mot tu the (co chan
+    //    65/55, nghieng cung mot ben) — nen mot chieu buoc hut nua nhip dau
+    //    va quay khong du goc. Cong 180 do cho chieu trai la hai tu the khoi
+    //    hanh thanh guong that: 125/115 so voi 65/55.
+    //
+    // Chieu phai giu y nguyen cau hinh cu vi do la cai da do duoc dung 90 do.
     void Turn(int dir, int steps) {
         int A[4] = {30, 30, 30, 30};
-        A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -10;
-        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_}, {0, 0, -90, -90},
-                  period_, steps);
+        A[dir > 0 ? RIGHT_LEG : LEFT_LEG] = -10;
+        const int s = dir > 0 ? 180 : 0;
+        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_},
+                  {0 + s, 0 + s, -90 + s, -90 + s}, period_, steps);
     }
 
     // Nhích bước nhỏ kiểu EMO: hông 8 ~ 14mm mỗi chu kỳ.
+    //
+    // Pha PHẢI cùng dấu với Walk (-90*dir). Trước đây viết dir*90 — ngược dấu,
+    // nên Step(-1) cho pha -90 đúng bằng pha của Walk(+1): bảo lùi thì nó tiến.
+    // Lộ ra vì LLM chọn [step_back] chứ không phải [walk_back] cho câu "đi lùi".
     void Step(int dir, int steps) {
-        Oscillate({8, 8, 30, 30}, {0, 0, lift_, -lift_}, {0, 0, dir * 90, dir * 90}, 900,
+        Oscillate({8, 8, 30, 30}, {0, 0, lift_, -lift_}, {0, 0, -90 * dir, -90 * dir}, 900,
                   steps);
     }
 
     // Xoay nhích: hông 5 / -2 ~ 14 độ mỗi chu kỳ. dir 1 = trái.
+    // Cùng khuôn với Turn() nên dính y hệt hai lỗi ở trên — sửa giống hệt.
     void Pivot(int dir, int steps) {
         int A[4] = {5, 5, 30, 30};
-        A[dir > 0 ? LEFT_LEG : RIGHT_LEG] = -2;
-        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_}, {0, 0, -90, -90},
-                  1100, steps);
+        A[dir > 0 ? RIGHT_LEG : LEFT_LEG] = -2;
+        const int s = dir > 0 ? 180 : 0;
+        Oscillate({A[0], A[1], A[2], A[3]}, {0, 0, lift_, -lift_},
+                  {0 + s, 0 + s, -90 + s, -90 + s}, 1100, steps);
     }
 
     void Jump() {
