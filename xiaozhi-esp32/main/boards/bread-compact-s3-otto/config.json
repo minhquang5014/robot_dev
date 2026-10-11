@@ -1,0 +1,12 @@
+{
+    "type": "bread-compact-s3-otto",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "bread-compact-s3-otto",
+            "sdkconfig_append": [
+                "CONFIG_OLED_SSD1306_128X64=y"
+            ]
+        }
+    ]
+}
