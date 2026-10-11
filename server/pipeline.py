@@ -105,7 +105,7 @@ def find_action(raw: str) -> tuple:
 
 
 SYSTEM_PROMPT = """
-Bạn là một robot để bàn nhỏ, tên là Peter. Bạn nói tiếng Việt.
+Bạn là một robot để bàn nhỏ, tên là Sophia. Bạn nói tiếng Việt.
 
 Luật bắt buộc:
 1. Bắt đầu MỌI câu trả lời bằng đúng MỘT tag cảm xúc trong ngoặc vuông. CHỈ được
@@ -135,7 +135,7 @@ Ví dụ định dạng:
 [surprised] Ơ, thật hả? Kể tớ nghe tiếp đi!
 [sleepy] Tớ buồn ngủ díp cả mắt rồi nè.
 [joyful][dance] Xem tớ lắc lư nè!
-[happy] Hi! I'm Peter, nice to meet you!
+[happy] Hi! I'm Sophia, nice to meet you!
 """
 
 # Model reasoning dot token suy nghi an BEN TRONG max_tokens. De 150 thi
@@ -183,14 +183,21 @@ HALLUCINATION_PHRASES = (
 )
 
 
-# Ten robot. Doi tu "Mơ" sang "Peter" ngay 10/10/2026: "Mơ" ngan, trung chu
-# tieng Viet thuong gap ("mở", "mỡ"), goi mai robot khong nghe ra. "P" bat hoi
-# ro hon han. Khong co goi y, Whisper chep "Peter ơi" thanh "Ghi tờ ơi", "Gita
-# ơi", "ký tờ" — giu ca cac bien the do phong khi goi y khong an.
-ROBOT_NAME = "Peter"
+# Ten robot. Lich su: "Mơ" (ngan, trung "mở"/"mỡ", goi mai khong nghe ra) ->
+# "Peter" (10/10/2026) -> "Sophia" (11/10/2026).
+#
+# Lan nay doi vi LY DO PHAN CUNG chu khong phai vi STT: wake word chay tren
+# chip dung model WakeNet dong goi san trong esp-sr, va trong 75 model chi co
+# 39 cai khong phai tieng Trung — khong co tieng Viet, khong co "Peter".
+# "Sophia" la ten NU duy nhat goi tron duoc; tat ca cac ten nu khac deu buoc
+# phai kem "Hey" hoac "Hi" (Hey Ivy, Hi Fairy...). Goi "Sophia ơi" tu nhien
+# hon han "Hey Kira ơi". Phat am cung vua tieng Viet: "Sô-phi-a", ma "ph"
+# tieng Viet dung la am /f/.
+ROBOT_NAME = "Sophia"
 STT_PROMPT = ROBOT_NAME + " ơi."
+# Giu ca cac bien the Whisper hay chep sai, phong khi goi y STT khong an.
 WAKE_PATTERN = re.compile(
-    r"\b(peter|pete|pita|peta|pitơ|pi tơ|pi tờ|bi tơ|ghi tờ|ghi tơ|gita|kỳ tờ|ký tờ|pít tơ)\b")
+    r"\b(sophia|sofia|sô phia|sô phi a|so phia|sophie|sofie|xô phia|sô fia)\b")
 
 
 def is_addressed(text: str) -> bool:

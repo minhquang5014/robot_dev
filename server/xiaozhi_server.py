@@ -284,6 +284,24 @@ class Session:
         self.task = None
 
 
+async def ket_thuc_luot(sess: Session):
+    """Bao thiet bi "het luot, khong co gi de noi" de no ve IDLE.
+
+    Che do auto-stop: thiet bi CHO SERVER quyet dinh luot ket thuc luc nao.
+    Truoc day luot bi loai (tieng on, het gio) chi duoc don dep phia server,
+    khong gui gi xuong — nen thiet bi nam o trang thai Listening mai mai, gui
+    tieng lien tuc 36KB moi 15 giay, va wake word tren chip khong gac duoc gi
+    vi no chi co tac dung tu IDLE.
+
+    Cap tts start+stop (khong kem byte tieng nao) la cach dung giao thuc san
+    co de noi dieu do: thiet bi vao Speaking roi ra Idle ngay.
+    """
+    with contextlib.suppress(Exception):
+        await sess.ws.send_json({"type": "tts", "state": "start"})
+        await sess.ws.send_json({"type": "tts", "state": "stop"})
+    sess.stop_listen()
+
+
 async def respond(sess: Session, pcm: np.ndarray = None, text: str = None):
     """Mot luot tra loi tron ven. Chay trong task rieng de abort cat duoc.
 
@@ -378,10 +396,8 @@ async def respond(sess: Session, pcm: np.ndarray = None, text: str = None):
                 await send_pkts(enc.encode(samples))
             await send_pkts(enc.flush())
     except pipeline.NoSpeech as e:
-        # Tieng on hoac Whisper bia. Chua gui gi xuong nen thiet bi van dang o
-        # trang thai nghe va se KHONG gui listen start lan nua -> server tu nghe tiep.
         log.info("  bo qua: khong phai cau noi (%r)", str(e)[:60])
-        sess.start_listen(sess.mode)
+        await ket_thuc_luot(sess)
         return
     except asyncio.CancelledError:
         with contextlib.suppress(Exception):
@@ -539,8 +555,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                         # Cham tran thoi gian ma chua he nghe thay tieng noi.
                         # Gui len STT thi Whisper bia ra cau ("Hay subscribe
                         # cho kenh..."), ton mot vong goi API va mot lan ghi
-                        # dia. Nghe lai tu dau luon.
-                        session.start_listen(session.mode)
+                        # dia. Bao thiet bi ve IDLE de cho goi ten lan nua.
+                        await ket_thuc_luot(session)
                         continue
                     session.task = asyncio.create_task(respond(session, pcm))
 

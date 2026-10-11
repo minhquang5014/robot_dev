@@ -107,7 +107,9 @@ private:
         });
 
         asr_button_.OnClick([this]() {
-            std::string wake_word = "你好小智";
+            // Phai trung voi model WakeNet dang bat (CONFIG_SR_WN_WN9_SOPHIA_TTS),
+            // khong thi log va thong bao hien ten khac voi cau thuc su danh thuc.
+            std::string wake_word = "Sophia";
             Application::GetInstance().WakeWordInvoke(wake_word);
         });
 

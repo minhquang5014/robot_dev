@@ -653,11 +653,19 @@ void Application::InitializeProtocol() {
             } else if (strcmp(state->valuestring, "stop") == 0) {
                 Schedule([this]() {
                     if (GetDeviceState() == kDeviceStateSpeaking) {
-                        if (listening_mode_ == kListeningModeManualStop) {
-                            SetDeviceState(kDeviceStateIdle);
-                        } else {
-                            SetDeviceState(kDeviceStateListening);
-                        }
+                        // Noi xong thi ve IDLE, de wake word tren chip lam cua gac.
+                        //
+                        // Truoc day nhanh else dua may ve Listening, nen no KHONG
+                        // BAO GIO ve Idle. Ma HandleWakeWordDetectedEvent chi co
+                        // tac dung tu Idle — ket qua: model WakeNet co chay nhung
+                        // khong gac gi ca, robot gui tieng len server lien tuc
+                        // 36KB moi 15 giay (do tren log Fly 11/10/2026).
+                        // O Idle thi EnableVoiceProcessing(false) nen thiet bi
+                        // thoi gui, chi con WakeNet chay tai cho.
+                        //
+                        // Danh doi: moi luot deu phai goi ten lai, khong noi tiep
+                        // duoc. Doi lai khong ton bang thong luc khong ai noi.
+                        SetDeviceState(kDeviceStateIdle);
                     }
                 });
             } else if (strcmp(state->valuestring, "sentence_start") == 0) {
