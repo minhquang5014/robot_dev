@@ -10,6 +10,9 @@ RUN grep -v '^sounddevice' requirements.txt > /tmp/req.txt && \
     pip install --no-cache-dir -r /tmp/req.txt
 
 COPY audio.py pipeline.py xiaozhi_server.py ./
+# Firmware cho robot tai qua WiFi. Thu muc co the rong — luc do server khong
+# tra khoa "firmware" va thiet bi khong doi nang cap.
+COPY firmware/ ./firmware/
 
 ENV PYTHONUNBUFFERED=1 HOST=0.0.0.0 PORT=8000
 EXPOSE 8000

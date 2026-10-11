@@ -12,6 +12,7 @@ lag" du tong do tre y het.
 
 Hai endpoint tren cung mot cong:
     POST/GET /xiaozhi/ota/   firmware hoi khi khoi dong -> tra ve dia chi WebSocket
+    GET      /xiaozhi/firmware/xiaozhi.bin  tai firmware de nang cap qua WiFi
     GET      /xiaozhi/v1/    WebSocket: hello, listen, audio Opus
 
 Giao thuc doc tu firmware (xiaozhi-esp32/main):
@@ -33,6 +34,7 @@ may cong ty — do la di vong tuong lua cua ho.
 import argparse
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 import os
@@ -71,6 +73,55 @@ def _public_base(request: web.Request) -> str:
     return f"{proto}://{request.host}"
 
 
+# ---- Nang cap qua WiFi (OTA) --------------------------------------------
+#
+# Firmware hoi POST /xiaozhi/ota/ kem phien ban dang chay. Tra ve khoa
+# "firmware" co version MOI HON thi no tu tai .bin ve, ghi sang phan vung app
+# con trong roi khoi dong lai (main/ota.cc). Khong tra khoa do thi khong bao
+# gio nang cap — truoc 11/10/2026 server co tinh bo di.
+#
+# CHI chay duoc tren board 16MB: bang phan vung partitions/v2/16m.csv co hai
+# khe ota_0/ota_1. Board ESP32 4MB cu chi co mot phan vung factory, va hai khe
+# cung khong nhet vua 4MB — OTA tren no la bat kha thi.
+FIRMWARE_PATH = os.environ.get("FIRMWARE_PATH", "firmware/xiaozhi.bin")
+
+# Ma chip trong esp_image_header_t. Nap nham ban ESP32 vao S3 thi bootloader
+# tu tu choi, nhung chan ngay o day thi khoi ton 2.5MB bang thong moi lan.
+CHIP_IDS = {0x0000: "esp32", 0x0002: "esp32s2", 0x0005: "esp32c3",
+            0x0009: "esp32s3", 0x000D: "esp32c6", 0x0010: "esp32p4"}
+
+
+def _doc_mo_ta_app(path: str) -> tuple:
+    """(phien ban, ten chip) doc tu chinh file .bin, hoac (None, None).
+
+    Phien ban nam san trong esp_app_desc_t nen khong can tep phu ghi kem —
+    hai noi la co ngay hai so lech nhau. Bo cuc: esp_image_header_t 24 byte
+    (chip_id o offset 12), segment header 8 byte, roi esp_app_desc_t o offset
+    32 voi magic 0xABCD5432 va version[32] o offset 16 cua no.
+    """
+    try:
+        with open(path, "rb") as f:
+            d = f.read(144)
+    except OSError:
+        return None, None
+    if len(d) < 144:
+        return None, None
+    if struct.unpack("<I", d[32:36])[0] != 0xABCD5432:
+        log.warning("OTA: %s khong phai anh ung dung ESP (thieu magic)", path)
+        return None, None
+    chip = CHIP_IDS.get(struct.unpack("<H", d[12:14])[0])
+    ver = d[48:80].split(b"\x00")[0].decode("utf-8", "replace").strip()
+    return (ver or None), chip
+
+
+async def handle_firmware(request: web.Request) -> web.StreamResponse:
+    if not os.path.isfile(FIRMWARE_PATH):
+        raise web.HTTPNotFound(text="khong co firmware")
+    log.info("OTA: thiet bi dang tai firmware (%d byte)", os.path.getsize(FIRMWARE_PATH))
+    return web.FileResponse(FIRMWARE_PATH,
+                            headers={"Content-Type": "application/octet-stream"})
+
+
 async def handle_ota(request: web.Request) -> web.Response:
     body = await request.text()
     try:
@@ -81,16 +132,24 @@ async def handle_ota(request: web.Request) -> web.Response:
 
     base = _public_base(request)
     ws_url = base.replace("https://", "wss://", 1).replace("http://", "ws://", 1) + "/xiaozhi/v1/"
-    log.info("OTA %s | Device-Id=%s | firmware=%s | tra ve ws=%s",
-             request.method, request.headers.get("Device-Id"), app.get("version"), ws_url)
 
-    return web.json_response({
+    # Khong co "mqtt", khong co "activation": firmware dung WebSocket va bo qua
+    # buoc kich hoat.
+    ra = {
         "server_time": {"timestamp": int(time.time() * 1000),
                         "timezone_offset": TIMEZONE_OFFSET_MIN},
-        # Khong co "mqtt", khong co "activation", khong co "firmware":
-        # firmware se dung WebSocket, bo qua kich hoat, khong doi nang cap.
         "websocket": {"url": ws_url, "token": os.environ.get("XZ_TOKEN", "")},
-    })
+    }
+
+    ver, chip = _doc_mo_ta_app(FIRMWARE_PATH)
+    ghi_chu = ""
+    if ver:
+        ra["firmware"] = {"version": ver, "url": base + "/xiaozhi/firmware/xiaozhi.bin"}
+        ghi_chu = " | co ban %s (%s)" % (ver, chip or "chip la")
+    log.info("OTA %s | Device-Id=%s | dang chay=%s%s",
+             request.method, request.headers.get("Device-Id"), app.get("version"), ghi_chu)
+
+    return web.json_response(ra)
 
 
 DUMP_OPUS = os.environ.get("XZ_DUMP_OPUS", "").strip() not in ("", "0", "false")
@@ -225,24 +284,32 @@ class Session:
         self.task = None
 
 
-async def respond(sess: Session, pcm: np.ndarray):
-    """Mot luot tra loi tron ven. Chay trong task rieng de abort cat duoc."""
+async def respond(sess: Session, pcm: np.ndarray = None, text: str = None):
+    """Mot luot tra loi tron ven. Chay trong task rieng de abort cat duoc.
+
+    `text` thay cho `pcm` thi bo qua STT va coi nhu nguoi dung vua noi cau do —
+    dung cho /xiaozhi/say, go chu tu may tinh thay vi phai noi.
+    """
     ws = sess.ws
     sess.turn += 1
     t0 = time.monotonic()
-    secs = len(pcm) / audio.SAMPLE_RATE
-    log.info("  -> nghe duoc %.1f s tieng, bat dau xu ly", secs)
+    src = None
 
-    os.makedirs(OUT_DIR, exist_ok=True)
-    stem = os.path.join(OUT_DIR, f"{time.strftime('%H%M%S')}_turn{sess.turn}")
-    # Ogg chu khong phai WAV: 8 KB thay vi 118 KB, STT tu 1324 xuong 377 ms.
-    src = audio.write_ogg(pcm, stem + ".ogg")
-    # Che do luon nghe tao mot tep moi luot, ke ca luot chi co tieng on. Khong
-    # xoa thi o dia server day dan.
-    if not DUMP_OPUS:
-        sess.cleanup.append(src)
-    if DUMP_OPUS:
-        audio.write_wav(pcm, stem + ".wav")     # de nghe lai khi soi loi
+    if text is None:
+        secs = len(pcm) / audio.SAMPLE_RATE
+        log.info("  -> nghe duoc %.1f s tieng, bat dau xu ly", secs)
+        os.makedirs(OUT_DIR, exist_ok=True)
+        stem = os.path.join(OUT_DIR, f"{time.strftime('%H%M%S')}_turn{sess.turn}")
+        # Ogg chu khong phai WAV: 8 KB thay vi 118 KB, STT tu 1324 xuong 377 ms.
+        src = audio.write_ogg(pcm, stem + ".ogg")
+        # Che do luon nghe tao mot tep moi luot, ke ca luot chi co tieng on.
+        # Khong xoa thi o dia server day dan.
+        if not DUMP_OPUS:
+            sess.cleanup.append(src)
+        if DUMP_OPUS:
+            audio.write_wav(pcm, stem + ".wav")     # de nghe lai khi soi loi
+    else:
+        log.info("  -> go tu may tinh: %r", text)
 
     turn = pipeline.Turn()
     enc = audio.OpusEncoder(rate=audio.OUT_RATE)
@@ -276,7 +343,8 @@ async def respond(sess: Session, pcm: np.ndarray):
             await ws.send_bytes(p)
 
     try:
-        gen = pipeline.run_turn_stream(turn, audio_path=src, history=sess.history,
+        gen = pipeline.run_turn_stream(turn, audio_path=src, text=text,
+                                       history=sess.history,
                                        on_emotion=on_emotion, pcm=True,
                                        pcm_rate=audio.OUT_RATE, on_action=on_action,
                                        accept=sess.accepts)
@@ -341,12 +409,118 @@ async def respond(sess: Session, pcm: np.ndarray):
              (time.monotonic()-t0)*1000)
 
 
+# ---- Dieu khien tu may tinh, khong phai noi ------------------------------
+#
+# Go chu nhanh hon noi, va khi thu dang di / dieu nhay thi phai lap lai cung
+# mot cau hang chuc lan. Hai endpoint duoi cho phep lam viec do tu terminal:
+#
+#   POST /xiaozhi/say  {"text": "nhảy đi"}   -> y het nhu vua noi cau do:
+#                                               LLM -> cam xuc + dong tac + TTS
+#   POST /xiaozhi/do   {"action": "dance"}   -> ban thang dong tac xuong chan,
+#                                               khong qua LLM, khong ton TTS
+#
+# Cai thu hai dang de thu chan nhat: khong ton luot goi Groq (gioi han 20
+# STT/phut cua ban mien phi rat de cham khi thu di thu lai).
+# Mat khau cho hai endpoint nay. Dat bang `fly secrets set XZ_CTRL_TOKEN=...`
+# chu KHONG ghi vao fly.toml — tep do nam trong git.
+#
+# Khong dat bien nay thi hai endpoint DONG han, khong phai mo toang. Server
+# chay cong khai tren Internet, nen mac dinh an toan phai la tu choi: quen
+# dat secret ma cua van mo thi khong ai phat hien ra cho den luc muon.
+CTRL_TOKEN = os.environ.get("XZ_CTRL_TOKEN", "")
+
+
+def _kiem_mat_khau(request: web.Request):
+    """Doi header `Authorization: Bearer <mat khau>`.
+
+    De trong header chu khong phai trong URL hay than JSON: URL hay bi ghi lai
+    trong log cua proxy, con than JSON thi minh dang ghi log noi dung cau noi.
+    So bang compare_digest de do dai thoi gian so sanh khong tiet lo gi.
+    """
+    if not CTRL_TOKEN:
+        raise web.HTTPServiceUnavailable(
+            text="chua dat XZ_CTRL_TOKEN tren server nen dieu khien tu xa bi khoa")
+    h = request.headers.get("Authorization", "")
+    gui = h[7:] if h.startswith("Bearer ") else ""
+    if not hmac.compare_digest(gui, CTRL_TOKEN):
+        log.warning("  tu choi dieu khien tu xa: sai mat khau (tu %s)",
+                    request.headers.get("X-Forwarded-For") or request.remote)
+        raise web.HTTPUnauthorized(text="sai mat khau")
+
+
+SESSIONS = {}          # device_id -> Session dang ket noi
+
+
+def _chon_phien(device: str = None):
+    if device:
+        s = SESSIONS.get(device)
+        if s is None:
+            raise web.HTTPNotFound(text="khong thay thiet bi %r" % device)
+        return s
+    if not SESSIONS:
+        raise web.HTTPServiceUnavailable(text="chua co robot nao ket noi")
+    if len(SESSIONS) > 1:
+        raise web.HTTPConflict(
+            text="co %d thiet bi, phai ghi ro 'device': %s"
+                 % (len(SESSIONS), ", ".join(SESSIONS)))
+    return next(iter(SESSIONS.values()))
+
+
+async def handle_say(request: web.Request) -> web.Response:
+    _kiem_mat_khau(request)
+    try:
+        d = await request.json()
+    except ValueError:
+        raise web.HTTPBadRequest(text="can JSON {\"text\": \"...\"}")
+    text = (d.get("text") or "").strip()
+    if not text:
+        raise web.HTTPBadRequest(text="thieu 'text'")
+    sess = _chon_phien(d.get("device"))
+    if sess.task is not None:
+        await sess.abort("go cau moi tu may tinh")
+    sess.task = asyncio.create_task(respond(sess, text=text))
+
+    def _done(t, _s=sess):
+        _s.task = None
+        if not t.cancelled() and t.exception():
+            log.error("  task tra loi chet: %r", t.exception())
+    sess.task.add_done_callback(_done)
+    return web.json_response({"ok": True, "device": sess.device_id, "text": text})
+
+
+async def handle_do(request: web.Request) -> web.Response:
+    """Ban thang mot dong tac xuong chan, bo qua LLM va TTS."""
+    _kiem_mat_khau(request)
+    try:
+        d = await request.json()
+    except ValueError:
+        raise web.HTTPBadRequest(text="can JSON {\"action\": \"dance\"}")
+    name = (d.get("action") or "").strip().lower()
+    if name not in pipeline.ACTIONS:
+        raise web.HTTPBadRequest(
+            text="action phai la mot trong: " + ", ".join(sorted(pipeline.ACTIONS)))
+    steps = int(d.get("steps") or 0)
+    sess = _chon_phien(d.get("device"))
+    action, direction = pipeline.ACTIONS[name]
+    sess.mcp_id += 1
+    await sess.ws.send_json({"session_id": sess.id, "type": "mcp", "payload": {
+        "jsonrpc": "2.0", "id": sess.mcp_id, "method": "tools/call",
+        "params": {"name": "self.otto.action",
+                   "arguments": {"action": action, "direction": direction,
+                                 "steps": min(steps, 10), **GAIT}}}})
+    log.info("  >> (tu may tinh) dong tac %s -> %s dir=%+d steps=%d",
+             name, action, direction, steps)
+    return web.json_response({"ok": True, "device": sess.device_id, "action": name,
+                              "direction": direction, "steps": steps})
+
+
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     h = request.headers
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
 
     session = Session(h.get("Device-Id", "?"), ws)
+    SESSIONS[session.device_id] = session
     log.info("WS MO | Device-Id=%s | Client-Id=%s | Protocol-Version=%s | token=%s",
              h.get("Device-Id"), h.get("Client-Id"), h.get("Protocol-Version"),
              "co" if h.get("Authorization") else "khong")
@@ -423,6 +597,10 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     finally:
         session.stop_listen("mat ket noi")
         await session.abort("mat ket noi")
+        # Chi go neu con tro toi CHINH phien nay: thiet bi noi lai truoc khi
+        # phien cu kip dong thi phien moi da ghi de, go bua la mat phien song.
+        if SESSIONS.get(session.device_id) is session:
+            del SESSIONS[session.device_id]
         log.info("WS DONG | Device-Id=%s", session.device_id)
     return ws
 
@@ -430,6 +608,9 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
 def make_app() -> web.Application:
     app = web.Application()
     app.router.add_route("*", "/xiaozhi/ota/", handle_ota)
+    app.router.add_get("/xiaozhi/firmware/xiaozhi.bin", handle_firmware)
+    app.router.add_post("/xiaozhi/say", handle_say)
+    app.router.add_post("/xiaozhi/do", handle_do)
     app.router.add_get("/xiaozhi/v1/", handle_ws)
     return app
 

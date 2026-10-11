@@ -1,0 +1,10 @@
+Thu muc chua firmware de robot tai qua WiFi.
+
+Quy trinh phat hanh:
+  1. Tang set(PROJECT_VER "...") trong xiaozhi-esp32/CMakeLists.txt
+  2. idf.py build
+  3. cp ../xiaozhi-esp32/build/xiaozhi.bin firmware/
+  4. fly deploy
+
+File .bin KHONG commit vao git (xem .gitignore) — 2,5MB moi ban se phinh repo.
+Server tu doc phien ban va ma chip tu chinh file nen khong co tep phu nao de lech.
