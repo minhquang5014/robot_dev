@@ -53,7 +53,8 @@
   LENH tren Serial Monitor (115200, khong can xuong dong):
 
     -- chon servo dang chay --
-      1 2 3 4  : BAT/TAT  LEFT_LEG / LEFT_FOOT / RIGHT_LEG / RIGHT_FOOT
+      1 2 3 4  : BAT/TAT  LEFT_LEG / RIGHT_LEG / LEFT_FOOT / RIGHT_FOOT
+                 (dung thu tu nay — trung voi SetTrims() ben firmware)
       m        : doi gioi han so servo chay cung luc (1 -> 2 -> 4)
       i        : xem con nao dang bat, goc, trim
 
