@@ -238,7 +238,9 @@ def list_models() -> list:
     return sorted(m["id"] for m in r.json().get("data", []))
 
 
-def speech_to_text(audio_path: str, model: str = None) -> str:
+def speech_to_text(audio_path: str, model: str = None, prompt: str = None) -> str:
+    """prompt None = goi y ten robot (STT_PROMPT); "" = khong goi y."""
+    prompt = STT_PROMPT if prompt is None else prompt
     model = model or os.environ.get("STT_MODEL", "whisper-large-v3-turbo")
     with open(audio_path, "rb") as f:
         r = _SESSION.post(
@@ -254,7 +256,7 @@ def speech_to_text(audio_path: str, model: str = None) -> str:
                 # Goi y ten robot. Khong co thi "Peter ơi" ra "Ghi tờ ơi",
                 # "Gita ơi" (do 10/10/2026). Cai gia: tieng on bi chep thanh
                 # dung cau goi y -> is_noise_transcript() loai cau trung y het.
-                "prompt": STT_PROMPT,
+                **({"prompt": prompt} if prompt else {}),
             },
             timeout=120,
         )
@@ -621,7 +623,8 @@ def run_turn(audio_path: str, out_path: str, history: list = None) -> Turn:
 
 async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
                           history: list = None, on_emotion=None, pcm: bool = False,
-                          pcm_rate: int = 16000, on_action=None, accept=None):
+                          pcm_rate: int = 16000, on_action=None, accept=None,
+                          stt_prompt: str = None):
     """Async generator: dien dan `turn`, yield chunk audio ngay khi co.
 
     `on_emotion(ten)` duoc goi NGAY khi tag cam xuc ve tu LLM — khoang 300ms,
@@ -636,7 +639,7 @@ async def run_turn_stream(turn: Turn, audio_path: str = None, text: str = None,
 
     if text is None:
         t0 = time.perf_counter()
-        turn.transcript = await asyncio.to_thread(speech_to_text, audio_path)
+        turn.transcript = await asyncio.to_thread(speech_to_text, audio_path, None, stt_prompt)
         turn.ms_stt = int((time.perf_counter() - t0) * 1000)
         if is_noise_transcript(turn.transcript):
             raise NoSpeech(turn.transcript)

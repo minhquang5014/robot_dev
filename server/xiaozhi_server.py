@@ -205,10 +205,11 @@ class Session:
         self.cleanup = []             # tep tam cua luot dang chay
         self.mcp_id = 0               # id JSON-RPC cho lenh MCP gui xuong
         self.last_spoke = 0.0         # monotonic luc robot noi xong cau gan nhat
+        self.wake_word = False        # thiet bi co wake word tren chip (gui listen detect)
 
     def accepts(self, transcript: str) -> bool:
         """Co tra loi cau nay khong (che do goi ten)."""
-        if not WAKE_REQUIRED:
+        if not WAKE_REQUIRED or self.wake_word:
             return True
         if time.monotonic() - self.last_spoke < WAKE_WINDOW_S:
             return True
@@ -365,7 +366,8 @@ async def respond(sess: Session, pcm: np.ndarray = None, text: str = None):
                                        history=sess.history,
                                        on_emotion=on_emotion, pcm=True,
                                        pcm_rate=audio.OUT_RATE, on_action=on_action,
-                                       accept=sess.accepts)
+                                       accept=sess.accepts,
+                                       stt_prompt="" if sess.wake_word else None)
         async with contextlib.aclosing(gen):
             async for chunk in gen:
                 if not started:
@@ -603,6 +605,15 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                             if not t.cancelled() and t.exception():
                                 log.error("  task tra loi chet: %r", t.exception())
                         session.task.add_done_callback(_done)
+                elif state == "detect":
+                    # Chip vua nghe thay wake word (board S3, WakeNet). Tu day
+                    # thiet bi da tu loc — server khong bat goi ten nua, va STT
+                    # khong gui goi y "Peter ơi." (chi lam lech chu: log 12/10
+                    # "tiến về phía trước" ra "Kính về phía trước", roi bi bo vi
+                    # khong co "Peter").
+                    session.wake_word = True
+                    session.last_spoke = time.monotonic()
+                    log.info("  << wake word %r tren chip", data.get("text", ""))
                 else:
                     log.info("  << listen %s", json.dumps(data, ensure_ascii=False))
             elif kind == "abort":
