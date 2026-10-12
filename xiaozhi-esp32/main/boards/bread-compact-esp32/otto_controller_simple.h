@@ -131,17 +131,25 @@ private:
         std::copy(t, t + SERVO_COUNT, pose_);
     }
 
+    // Tính theo ĐỒNG HỒ THẬT, không đếm nhịp. FreeRTOS ở đây chạy 100 Hz, nên
+    // vTaskDelay(20 ms) = 2 tick thực tế chỉ chờ 10-20 ms tùy lúc gọi: bản cũ đếm
+    // ms/20 nhịp nên Move(500) xong trong ~300-450 ms, mỗi lần một khác — giật ở
+    // lúc đặt chân vào thế, về nghỉ và nhảy. Sketch dùng delay(20) của Arduino là đúng 20 ms.
     void Move(int ms, const int (&target)[4]) {
         int from[4] = {pose_[0], pose_[1], pose_[2], pose_[3]};
-        int n = std::max(1, ms / kRefreshMs);
-        for (int k = 1; k <= n; k++) {
+        const int64_t start = esp_timer_get_time();
+        TickType_t wake = xTaskGetTickCount();
+        while (true) {
+            float f = (float)((esp_timer_get_time() - start) / 1000) / std::max(ms, 1);
+            if (f >= 1.0f) break;
             int p[4];
             for (int i = 0; i < 4; i++) {
-                p[i] = (int)std::lround(from[i] + (target[i] - from[i]) * (float)k / n);
+                p[i] = (int)std::lround(from[i] + (target[i] - from[i]) * f);
             }
             Write(p);
-            vTaskDelay(pdMS_TO_TICKS(kRefreshMs));
+            vTaskDelayUntil(&wake, pdMS_TO_TICKS(kRefreshMs));
         }
+        Write(target);
     }
 
     // góc = 90 + O + A*sin(2π t/period + pha). Đặt chân vào tư thế t=0 trước.
@@ -159,6 +167,7 @@ private:
         }
         const int64_t start = esp_timer_get_time();
         const int64_t total = (int64_t)(period * cycles) * 1000;
+        TickType_t wake = xTaskGetTickCount();   // nhịp đều 20 ms như sketch
         int64_t now;
         while ((now = esp_timer_get_time() - start) < total) {
             double w = 2.0 * M_PI * (double)now / 1000.0 / period;
@@ -168,7 +177,7 @@ private:
                        (int)std::lround(A[i] * amp * std::sin(w + ph[i] * M_PI / 180.0));
             }
             Write(p);
-            vTaskDelay(pdMS_TO_TICKS(kRefreshMs));
+            vTaskDelayUntil(&wake, pdMS_TO_TICKS(kRefreshMs));
         }
     }
 
