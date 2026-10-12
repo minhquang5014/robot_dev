@@ -43,6 +43,16 @@ Cổ chân phải	GPIO12
 
 Tất cả GND chung.
 
+Bản vẽ minh hoạ: [ESP32-S3 Robot Wiring Diagram.png](ESP32-S3%20Robot%20Wiring%20Diagram.png).
+Đường dây từ linh kiện tới chân S3 trong ảnh khớp sơ đồ trên, nhưng **lấy sơ đồ chữ
+ở trên làm chuẩn** vì ảnh có lỗi:
+
+- Ô "Lưu ý khi hàn dây" ghi servo dùng 3.3V — **sai**, servo dùng 5V nguồn riêng (xem dưới).
+- Bảng "Tóm tắt kết nối" lỗi chữ: mic `WS → GPIO45` (đúng là **GPIO4**), `GPIO0 → 3V3`;
+  amp `DIN → 5V7`, `LRC → GPIO` thiếu số (đúng: DIN GPIO7, LRC GPIO16).
+- Ảnh mic là module electret, không phải INMP441. Servo chỉ vẽ dây tín hiệu, thiếu dây nguồn.
+- Nút GPIO38 / GPIO47 chỉ vẽ một dây — chân còn lại của nút nối **GND**.
+
 **Servo phải có nguồn 5V riêng**, chỉ chung mát với board. Lấy từ chân 5V của
 DevKitC-1 thì lúc servo giật sẽ kéo sụt cả đường nguồn của S3. Và `MAX98357A VIN`
 nối thẳng VBUS không qua ổn áp nào — nên cắm USB qua hub hay cáp kém là tiếng loa
