@@ -76,7 +76,7 @@ dùng được cho servo.
 
 | Linh kiện | Chi tiết |
 |---|---|
-| Pin | LiPo 1 cell **PL803040, 3,7V 1000 mAh**, có mạch bảo vệ (PCM) dưới băng dính vàng |
+| Pin | LiPo 1 cell **3,7V 3000 mAh**, có mạch bảo vệ (PCM) — mảnh mạch nhỏ dưới băng dính vàng ở đầu pin |
 | Sạc + tăng áp | Module Type-C **FM5324GA** (25 x 20 mm): sạc pin qua Type-C, tăng 3,7V lên 5V |
 | Công tắc | **Từ 3A trở lên** (ví dụ bập bênh KCD1). Gạt mini SS12D00 / MSK12C02 chỉ 0,3-0,5A — nóng, sụt áp |
 
@@ -134,16 +134,16 @@ ESP32-S3 GPIO2 ──[1 kΩ]── B  NPN 2N2222 / BC547
 - **Cầu chia áp** vì chân ADC của ESP32 chỉ đọc tối đa ~3V.
 - GPIO1, GPIO2 đang trống trên board S3 (soát với `bread-compact-s3-otto/config.h`).
 
-#### Pin 1000 mAh có đủ không
+#### Pin 3000 mAh có đủ dòng không
 
-Pin nhỏ loại này thường chỉ xả ~1C (~1A) liên tục, mạch bảo vệ hay ngắt ở ~2-3A (số chính
-xác tùy hãng). Tăng áp lên 5V nên phía pin chịu dòng gấp ~1,6 lần phía 5V: robot kéo 2A
-ở 5V khi 4 servo giật thì pin phải xả ~3,2A → **có thể ngắt khi robot nhảy**. Thử: cho
-robot nhảy cả bài trong lúc đang nói; tắt hoặc reset thì đổi sang 18650 loại tốt (xả 5-10A)
-hoặc LiPo ≥2000 mAh có ghi ≥2C.
+Robot kéo tới ~2A ở 5V khi 4 servo cùng giật. Tăng áp lên 5V nên phía pin chịu dòng gấp
+~1,6 lần: **pin phải xả ~3,2A**. Pin 3000 mAh dù chỉ xả 1C cũng đã ~3A, nên nhiều khả năng
+đủ — nhưng **mạch bảo vệ (PCM) có ngưỡng ngắt quá dòng riêng**, có loại ngắt ở ~3A. Chưa
+biết chỉ số xả (C) và ngưỡng PCM của pin này. Thử: cho robot nhảy cả bài trong lúc đang nói;
+tắt hoặc reset giữa chừng là PCM đang ngắt.
 
-Ước tính thời gian chạy (chưa đo): ~3 Wh ở 5V → đứng nghe ~3-4 giờ, nói và đi nhiều
-~1 giờ hoặc ít hơn.
+Ước tính thời gian chạy (chưa đo): 3000 mAh x 3,7V ≈ 11 Wh, qua tăng áp còn ~9 Wh ở 5V →
+đứng nghe (~150 mA) **khoảng 10-12 giờ**, nói và đi nhiều **khoảng 3 giờ**.
 
 **Cắm USB nạp code khi đang chạy pin:** hai nguồn 5V có thể đè nhau. Tắt công tắc pin
 trước khi cắm USB, hoặc nạp qua WiFi (OTA).
