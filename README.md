@@ -72,6 +72,82 @@ nhỏ hẳn đi. Hàn tụ ~1000 µF sát chân VIN của amp.
 GPIO12 là chân strapping trên **ESP32 cũ** nhưng **không phải** trên S3, nên ở đây
 dùng được cho servo.
 
+### Nguồn pin
+
+| Linh kiện | Chi tiết |
+|---|---|
+| Pin | LiPo 1 cell **PL803040, 3,7V 1000 mAh**, có mạch bảo vệ (PCM) dưới băng dính vàng |
+| Sạc + tăng áp | Module Type-C **FM5324GA** (25 x 20 mm): sạc pin qua Type-C, tăng 3,7V lên 5V |
+| Công tắc | **Từ 3A trở lên** (ví dụ bập bênh KCD1). Gạt mini SS12D00 / MSK12C02 chỉ 0,3-0,5A — nóng, sụt áp |
+
+```
+Pin (+) đỏ ──[CÔNG TẮC ≥3A]── B+ ┐
+Pin (−) đen ──────────────────── B− ┤  FM5324GA   5V  ──┬─► ESP32-S3 chân 5V
+                                    │             GND ──┼─► GND chung (mọi thứ)
+             nút nhấn nhả ── K ─────┘  [Type-C] = sạc   ├─► MAX98357A VIN  (+ tụ 1000 µF)
+             (chân kia xuống GND)                       └─► 4 servo dây đỏ (+ tụ 1000 µF)
+```
+
+**Chưa chắc chân nào là B+ / B−.** Nhìn ảnh module thì hai miếng hàn cạnh TRÁI (ký hiệu
+"□" và "+") là pin, cạnh DƯỚI ("+" và "5V") là ngõ ra — nhưng phải đo trước khi hàn,
+ngược cực pin là cháy: cắm Type-C (chưa nối pin), miếng ra ~4,2V là B+, miếng ra ~5V là
+ngõ ra; B− thông mạch với GND của ngõ ra.
+
+**Công tắc đặt trên dây đỏ của pin** chứ không phải ở ngõ ra 5V: khi bật tăng áp, module
+ăn điện liên tục, ngắt ở ngõ ra thì robot tắt nhưng pin vẫn bị rút. Cái giá: **tắt công
+tắc thì không sạc được** — nhớ bật lên khi cắm sạc.
+
+#### Chân K (bật / tắt ngõ ra 5V) — đo ngày 16/10/2026
+
+| Thử | Kết quả |
+|---|---|
+| Cắm pin, chưa làm gì | Ngõ ra ~3,8V = điện áp pin lọt qua cuộn cảm + diode, **tăng áp chưa chạy** |
+| Chạm K xuống GND một cái | Lên **5V** |
+| **Hàn cứng K xuống GND** | Giữ 5V được vài phút rồi **tụt xuống 1,6V** — chip hiểu K bị giữ mãi là "nhấn giữ = tắt", tụ ngõ ra xả dần qua đồng hồ đo |
+
+→ **Không hàn cứng K xuống GND.** Dùng K làm nút nguồn (nút nhấn nhả, giống sạc dự phòng):
+nhấn một cái để bật. Lúc thử trên chỉ có đồng hồ đo làm tải (gần như 0 mA) — có robot
+làm tải (ESP32-S3 ~100 mA trở lên) thì nhiều khả năng mạch không tự tắt. **CHƯA kiểm
+chứng:** cắm robot, nhấn K, để chạy 15 phút xem có tự tắt không.
+
+#### Nếu có robot làm tải mà vẫn tự tắt — ESP32 giữ cho mạch thức (CHƯA làm)
+
+Đừng để ESP32 *chờ thấy điện yếu rồi mới* kéo K: ESP32 lấy điện từ chính module này, lúc
+tăng áp tắt thì ngõ ra tụt về ≤3,8V, ổn áp 3,3V trên board không đủ đầu vào nên chip sụt áp
+và reset trước khi kịp phản ứng. Thay vào đó **nhấn K ngắn theo nhịp, mỗi ~15-20 giây**, để
+mạch không bao giờ tự tắt.
+
+Phải thử trước: chạm K xuống GND **thật nhanh (dưới nửa giây) trong lúc đang có 5V** — nếu
+5V vẫn giữ thì cách này dùng được; nếu chip hiểu là bật/tắt thì không dùng được.
+
+```
+ESP32-S3 GPIO2 ──[1 kΩ]── B  NPN 2N2222 / BC547
+                          C ── chân K của FM5324GA
+                          E ── GND
+
+5V ──[10 kΩ]──┬──[10 kΩ]── GND
+              └── ESP32-S3 GPIO1 (ADC, đọc ~2,5V) — theo dõi, báo pin yếu lên OLED
+```
+
+- Qua **transistor**, không nối thẳng GPIO vào K: K có thể được kéo lên ở điện áp pin
+  (~4,2V), cao hơn 3,3V mà GPIO chịu được.
+- **Cầu chia áp** vì chân ADC của ESP32 chỉ đọc tối đa ~3V.
+- GPIO1, GPIO2 đang trống trên board S3 (soát với `bread-compact-s3-otto/config.h`).
+
+#### Pin 1000 mAh có đủ không
+
+Pin nhỏ loại này thường chỉ xả ~1C (~1A) liên tục, mạch bảo vệ hay ngắt ở ~2-3A (số chính
+xác tùy hãng). Tăng áp lên 5V nên phía pin chịu dòng gấp ~1,6 lần phía 5V: robot kéo 2A
+ở 5V khi 4 servo giật thì pin phải xả ~3,2A → **có thể ngắt khi robot nhảy**. Thử: cho
+robot nhảy cả bài trong lúc đang nói; tắt hoặc reset thì đổi sang 18650 loại tốt (xả 5-10A)
+hoặc LiPo ≥2000 mAh có ghi ≥2C.
+
+Ước tính thời gian chạy (chưa đo): ~3 Wh ở 5V → đứng nghe ~3-4 giờ, nói và đi nhiều
+~1 giờ hoặc ít hơn.
+
+**Cắm USB nạp code khi đang chạy pin:** hai nguồn 5V có thể đè nhau. Tắt công tắc pin
+trước khi cắm USB, hoặc nạp qua WiFi (OTA).
+
 ## Tuỳ chỉnh so với xiaozhi gốc
 
 1. **Kết nối được WiFi ẩn** — `xiaozhi-esp32/components/esp-wifi-connect/wifi_station.cc`
