@@ -120,19 +120,44 @@ mạch không bao giờ tự tắt.
 Phải thử trước: chạm K xuống GND **thật nhanh (dưới nửa giây) trong lúc đang có 5V** — nếu
 5V vẫn giữ thì cách này dùng được; nếu chip hiểu là bật/tắt thì không dùng được.
 
-```
-ESP32-S3 GPIO2 ──[1 kΩ]── B  NPN 2N2222 / BC547
-                          C ── chân K của FM5324GA
-                          E ── GND
+**Nối THẲNG, không cần transistor.** Chân K lúc nghỉ đo được **0,8V** (17/10/2026) — thấp hơn
+3,3V nên nối thẳng vào GPIO không hại gì ESP32:
 
+```
+ESP32-S3 GPIO2 ─────── chân K của FM5324GA
+```
+
+- Đặt GPIO2 ở chế độ **open-drain**: chỉ có hai trạng thái — kéo xuống GND hoặc thả nổi,
+  không bao giờ ra 3,3V. Kéo **xuống 0** ~200 ms rồi thả = một lần "nhấn nút".
+- **Đừng** cho GPIO2 ra mức cao: đẩy 3,3V vào K (bình thường 0,8V) là cãi nhau với mạch
+  trong chip sạc.
+- Lúc ESP32 khởi động GPIO2 mặc định thả nổi nên không bị "nhấn nhầm".
+- GPIO2 đang trống trên board S3 (soát với `bread-compact-s3-otto/config.h`).
+
+Chỉ cần nối dây này **khi** mạch tự tắt lúc có robot làm tải. Giữ được 5V thì không nối gì.
+
+**Đo điện áp pin — tuỳ chọn, có thể bỏ.** Chỉ để báo pin yếu lên OLED; không có thì robot vẫn
+chạy, hết pin thì tắt phụt (mạch bảo vệ của pin ngắt ~3,0V, vẫn an toàn). 4 đèn LED trên
+module báo mức pin thay được. Nếu muốn làm:
+
+```
 5V ──[10 kΩ]──┬──[10 kΩ]── GND
-              └── ESP32-S3 GPIO1 (ADC, đọc ~2,5V) — theo dõi, báo pin yếu lên OLED
+              └── ESP32-S3 GPIO1 (ADC)
 ```
 
-- Qua **transistor**, không nối thẳng GPIO vào K: K có thể được kéo lên ở điện áp pin
-  (~4,2V), cao hơn 3,3V mà GPIO chịu được.
-- **Cầu chia áp** vì chân ADC của ESP32 chỉ đọc tối đa ~3V.
-- GPIO1, GPIO2 đang trống trên board S3 (soát với `bread-compact-s3-otto/config.h`).
+Chân ADC của ESP32 chỉ đọc tới ~3V, nối thẳng 5V là hỏng. Hai điện trở bằng nhau chia đôi:
+5V đọc ra 2,5V, trong code nhân 2. Đọc ~1,9V (tức 3,8V) = tăng áp đã tắt. Rút ~0,25 mA
+liên tục; thêm tụ 100 nF từ điểm giữa xuống GND cho số đọc ổn định.
+
+#### Đèn LED khi sạc
+
+Cắm sạc thấy sáng 3/4 đèn dù pin đang ~3,0V là bình thường: lúc có dòng sạc, điện áp ở cực
+pin bị đẩy cao hơn mức thật nên đèn báo dư. Muốn biết thật thì rút sạc, để nghỉ 10-15 phút
+rồi đo ở hai dây pin (đầy ~4,1-4,2V).
+
+Sạc bằng cục sạc MacBook (USB-C PD) an toàn: không xin thì PD chỉ cấp 5V. Nếu cáp C-to-C
+cắm vào không sạc là module thiếu điện trở 5,1 kΩ ở chân CC — dùng cáp USB-A sang C với cục
+sạc thường.
 
 #### Pin 3000 mAh có đủ dòng không
 
