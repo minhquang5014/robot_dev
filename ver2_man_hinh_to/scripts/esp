@@ -1,0 +1,36 @@
+#!/bin/bash
+# esp - helper cho ESP32 (arduino-cli)
+#   esp ports              : liet ke cong / board dang cam
+#   esp build [thumuc]     : bien dich
+#   esp up    [thumuc]     : bien dich + nap + mo serial monitor
+#   esp mon                : chi mo serial monitor
+# Doi board: export ESP_FQBN=esp32:esp32:esp32s3   (mac dinh: esp32:esp32:esp32)
+export PATH="$HOME/bin:$PATH"
+FQBN="${ESP_FQBN:-esp32:esp32:esp32}"
+BAUD="${ESP_BAUD:-115200}"
+
+find_port() {
+  ls /dev/cu.usb* /dev/cu.wchusb* /dev/cu.SLAB* 2>/dev/null | head -1
+}
+
+case "$1" in
+  ports)
+    echo "--- cong USB ---"; ls /dev/cu.usb* /dev/cu.wchusb* /dev/cu.SLAB* 2>/dev/null || echo "(khong thay board nao)"
+    echo "--- arduino-cli ---"; arduino-cli board list ;;
+  build)
+    arduino-cli compile --fqbn "$FQBN" "${2:-.}" ;;
+  up)
+    PORT=$(find_port)
+    [ -z "$PORT" ] && { echo "Khong tim thay ESP32. Cam board vao roi chay: esp ports"; exit 1; }
+    echo ">> Board: $FQBN   Cong: $PORT"
+    arduino-cli compile --fqbn "$FQBN" "${2:-.}" || exit 1
+    arduino-cli upload -p "$PORT" --fqbn "$FQBN" "${2:-.}" || exit 1
+    echo ">> Nap xong. Mo monitor (Ctrl-C de thoat)..."
+    arduino-cli monitor -p "$PORT" --config baudrate=$BAUD ;;
+  mon)
+    PORT=$(find_port)
+    [ -z "$PORT" ] && { echo "Khong tim thay ESP32."; exit 1; }
+    arduino-cli monitor -p "$PORT" --config baudrate=$BAUD ;;
+  *)
+    sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

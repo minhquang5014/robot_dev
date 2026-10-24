@@ -1,0 +1,14 @@
+#!/bin/bash
+# xz - helper cho xiaozhi-esp32 (ESP-IDF)
+#   xz build | xz flash | xz mon | xz menuconfig | xz all
+PORT="${XZ_PORT:-/dev/cu.usbserial-A5069RR4}"
+. $HOME/esp/esp-idf/export.sh >/dev/null 2>&1
+cd $HOME/robot_test/xiaozhi-esp32 || exit 1
+case "$1" in
+  build)      idf.py build ;;
+  flash)      idf.py -p "$PORT" -b 460800 flash ;;
+  mon)        idf.py -p "$PORT" monitor ;;
+  menuconfig) idf.py menuconfig ;;
+  all)        idf.py -p "$PORT" -b 460800 flash monitor ;;
+  *) echo "Dung: xz {build|flash|mon|menuconfig|all}"; echo "Cong hien tai: $PORT" ;;
+esac

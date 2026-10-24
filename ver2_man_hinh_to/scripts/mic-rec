@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""
+mic-rec : bao ESP32 ghi am tu INMP441 roi luu thanh file WAV tren Mac.
+
+  mic-rec              ghi 5 giay, luu WAV, tu phat lai
+  mic-rec -o bai1.wav  chi dinh ten file
+  mic-rec --level      chi xem muc am thanh, khong ghi
+"""
+import argparse, os, struct, subprocess, sys, time, wave
+
+PORT = os.environ.get("MIC_PORT", "/dev/cu.usbserial-A5069RR4")
+BAUD, SR, SECS = 921600, 16000, 5
+
+try:
+    import serial
+except ImportError:
+    sys.exit("Thieu pyserial. Chay:  python3 -m pip install --user pyserial")
+
+def open_port():
+    s = serial.Serial(PORT, BAUD, timeout=2)
+    s.setDTR(False); s.setRTS(True); time.sleep(0.15); s.setRTS(False)
+    time.sleep(1.2)                  # cho ESP32 khoi dong
+    s.reset_input_buffer()
+    return s
+
+def read_until(s, marker, limit=20.0):
+    buf, t0 = b"", time.time()
+    while time.time() - t0 < limit:
+        c = s.read(256)
+        if c:
+            buf += c
+            i = buf.find(marker)
+            if i >= 0:
+                return buf[i + len(marker):]
+    return None
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-o", "--out", default=None)
+    ap.add_argument("--level", action="store_true")
+    ap.add_argument("--no-play", action="store_true")
+    a = ap.parse_args()
+
+    s = open_port()
+
+    if a.level:
+        print("Muc am thanh (Ctrl-C de dung). Noi vao mic xem so co nhay khong:")
+        try:
+            while True:
+                s.write(b"s"); s.flush()
+                tail = read_until(s, b"LEVEL ", 3)
+                if tail is None: print("  (khong phan hoi)"); continue
+                num = tail.split(b"\n")[0].strip().decode(errors="replace")
+                try: v = int(num)
+                except ValueError: continue
+                bar = "#" * min(50, v // 200)
+                print("  %6d |%s" % (v, bar))
+                time.sleep(0.25)
+        except KeyboardInterrupt:
+            print(); return
+
+    need = SR * SECS * 2
+    print(f"Ghi {SECS} giay - NOI VAO MIC NGAY BAY GIO...")
+    s.write(b"r"); s.flush()
+
+    rest = read_until(s, b"RECSTART", 15)
+    if rest is None: sys.exit("Khong nhan duoc RECSTART. ESP32 co dang chay sketch mic_record khong?")
+
+    data = bytearray(rest)
+    t0 = time.time()
+    while len(data) < need and time.time() - t0 < SECS + 15:
+        c = s.read(4096)
+        if c: data += c
+    s.close()
+
+    data = bytes(data[:need])
+    if len(data) < need:
+        print(f"Canh bao: chi nhan duoc {len(data)}/{need} byte")
+
+    # do muc dinh
+    peak = 0
+    for i in range(0, len(data) - 1, 2):
+        v = struct.unpack_from("<h", data, i)[0]
+        peak = max(peak, abs(v))
+
+    out = a.out or time.strftime("mic_%H%M%S.wav")
+    gain = 1.0
+    if 0 < peak < 20000:
+        gain = min(8.0, 20000 / peak)      # chuan hoa cho de nghe
+        buf = bytearray(len(data))
+        for i in range(0, len(data) - 1, 2):
+            v = int(struct.unpack_from("<h", data, i)[0] * gain)
+            v = max(-32768, min(32767, v))
+            struct.pack_into("<h", buf, i, v)
+        data = bytes(buf)
+
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
+        w.writeframes(data)
+
+    pct = peak * 100 // 32767
+    print(f"Da luu: {os.path.abspath(out)}")
+    print(f"Muc dinh khi thu: {peak}/32767 ({pct}%)" + (f", da khuech dai x{gain:.1f} cho de nghe" if gain > 1 else ""))
+    if peak == 0:
+        print("!! Toan bo im lang - mic khong ra du lieu. Kiem tra day SD->GPIO32, VDD->3V3, L/R->GND.")
+    elif peak < 300:
+        print("!! Rat nho - co the mic chua bat duoc tieng, hoac ban noi qua xa.")
+    else:
+        print("Mic co tin hieu that.")
+
+    if not a.no_play and peak > 0:
+        subprocess.run(["afplay", out])
+
+main()

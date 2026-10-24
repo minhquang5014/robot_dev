@@ -1,30 +1,27 @@
-# ---- San pham build, deu tu sinh lai duoc ----
-build/
-managed_components/
-dependencies.lock
-sdkconfig.old
-*.bin
+# Quy tac chung cho CA HAI phien ban. Moi ban con co .gitignore rieng cua no
+# (ver1_man_hinh_be/.gitignore, va .gitignore cua upstream trong xiaozhi-esp32).
+
+# Duong dan tuyet doi cua tung may, khong mang sang may khac duoc
+.vscode/
+
+# ---- Khoa API: luoi an toan ----
+# ver1 da co quy tac rieng. Dat lai o day vi ban sao sang ver2 rat de bi quen
+# chep theo .gitignore — ma quen mot lan la khoa len GitHub vinh vien.
+**/.env
+
+# Firmware phuc vu OTA: 2,5MB moi ban, chep vao ngay truoc khi deploy
+**/server/firmware/*.bin
+
+# ---- San pham build ----
+**/build/
+**/managed_components/
+**/dependencies.lock
+**/sdkconfig.old
 *.elf
 *.map
 
-# ---- File ghi am thu ----
-*.wav
-
 # ---- Linh tinh ----
 .DS_Store
-.vscode/
-.cache/
 *.pyc
 __pycache__/
-
-# ---- Khoa API ----
-.env
-
-# ---- Ket qua test pipeline ----
-server/out/
-
-# ---- Moi truong Python ----
 .venv/
-
-# Fork tham khao, co .git rieng — khong nhung vao repo nay
-xiaozhi-esp32-server/

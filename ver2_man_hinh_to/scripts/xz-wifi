@@ -1,0 +1,86 @@
+#!/bin/bash
+# xz-wifi - cau hinh WiFi cho ESP32 xiaozhi thong qua hotspot cua no
+#
+#   xz-wifi                 : chi QUET, xem ESP32 nhin thay nhung mang nao
+#   xz-wifi "Ten Mang"      : quet + khai bao mang do cho ESP32
+#
+# ESP32 phai dang o che do cau hinh (bam nut BOOT neu chua thay hotspot).
+set -uo pipefail
+
+AP_SSID="${XZ_AP_SSID:-Xiaozhi-5C25}"
+ESP_IP="192.168.4.1"
+TARGET="${1:-}"
+
+IFACE=$(networksetup -listallhardwareports | awk '/Wi-Fi|AirPort/{getline; print $2; exit}')
+[ -z "$IFACE" ] && { echo "Khong tim thay card WiFi"; exit 1; }
+
+HOME_SSID=$(networksetup -getairportnetwork "$IFACE" 2>/dev/null | sed 's/^Current Wi-Fi Network: //')
+case "$HOME_SSID" in *"not associated"*|*"<redacted>"*|"") HOME_SSID="";; esac
+# macOS moi co the che ten mang -> dung XZ_HOME_SSID de chi dinh mang quay ve
+HOME_SSID="${XZ_HOME_SSID:-$HOME_SSID}"
+if [ -z "$HOME_SSID" ]; then
+  echo "!! Khong doc duoc ten mang hien tai (macOS che vi quyen Location)."
+  echo "   Chay lai kem ten mang can quay ve, vi du:"
+  echo "     XZ_HOME_SSID=\"Canteen79\" xz-wifi \"Canteen79\""
+  exit 1
+fi
+
+PASS=""
+if [ -n "$TARGET" ]; then
+  read -rsp "Mat khau WiFi cho '$TARGET' (Enter neu mang mo): " PASS; echo
+fi
+
+restore() {
+  if [ -n "$HOME_SSID" ] && [ "$HOME_SSID" != "$AP_SSID" ]; then
+    echo ">> Dua Mac ve mang '$HOME_SSID'..."
+    networksetup -setairportnetwork "$IFACE" "$HOME_SSID" >/dev/null 2>&1
+  fi
+}
+trap restore EXIT
+
+echo ">> Card WiFi: $IFACE   | Mang hien tai: ${HOME_SSID:-(khong ro)}"
+echo ">> Noi vao hotspot '$AP_SSID'..."
+if ! networksetup -setairportnetwork "$IFACE" "$AP_SSID" 2>&1 | grep -qv "^$"; then :; fi
+
+echo -n ">> Cho ESP32 tra loi"
+OK=0
+for i in $(seq 1 25); do
+  if curl -s --max-time 2 "http://$ESP_IP/scan" -o /dev/null 2>/dev/null; then OK=1; break; fi
+  echo -n "."; sleep 1
+done
+echo
+if [ "$OK" != "1" ]; then
+  echo "!! Khong noi duoc toi $ESP_IP."
+  echo "   - ESP32 con o che do cau hinh khong? Bam nut BOOT roi chay lai."
+  echo "   - Hotspot '$AP_SSID' co hien trong danh sach WiFi cua Mac khong?"
+  exit 1
+fi
+
+echo
+echo "=== MANG MA ESP32 NHIN THAY ==="
+curl -s --max-time 10 "http://$ESP_IP/scan" | python3 -c '
+import sys, json
+try: aps = json.load(sys.stdin)
+except Exception: print("(khong doc duoc ket qua quet)"); sys.exit()
+auth = {0:"mo", 1:"WEP", 2:"WPA", 3:"WPA2", 4:"WPA/WPA2", 5:"EAP", 6:"WPA3", 7:"WPA2/WPA3"}
+if not aps: print("(ESP32 khong thay mang nao)")
+for a in sorted(aps, key=lambda x: -x.get("rssi",-999)):
+    print("  %-34s %4d dBm  %s" % (a.get("ssid",""), a.get("rssi",0), auth.get(a.get("authmode"),"?")))
+'
+
+[ -z "$TARGET" ] && { echo; echo "Chi quet thoi. De khai bao: xz-wifi \"Ten Mang\""; exit 0; }
+
+echo
+echo ">> Gui thong tin mang '$TARGET' cho ESP32 (no se thu ket noi that)..."
+BODY=$(TARGET="$TARGET" PASS="$PASS" python3 -c '
+import json, os
+print(json.dumps({"ssid": os.environ["TARGET"], "password": os.environ["PASS"]}))')
+
+RESP=$(curl -s --max-time 45 -H "Content-Type: application/json" -d "$BODY" "http://$ESP_IP/submit")
+echo ">> ESP32 tra loi: $RESP"
+case "$RESP" in
+  *'"success":true'*)  echo ">> THANH CONG. ESP32 da luu va ket noi duoc mang nay.";;
+  *Invalid\ SSID*)     echo ">> Ten mang khong hop le (toi da 32 ky tu).";;
+  *Failed\ to\ connect*) echo ">> Khong ket noi duoc: sai mat khau, hoac song yeu, hoac mang 5GHz.";;
+  *)                   echo ">> Khong ro ket qua, xem chuoi tra loi o tren.";;
+esac
