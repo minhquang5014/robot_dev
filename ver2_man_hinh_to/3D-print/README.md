@@ -10,7 +10,7 @@ không cần mạng, không cần cài gì.
 
 | Tệp | Chi tiết | SL | Kích thước (mm) |
 |---|---|---|---|
-| `vo-than.stl` | Thân — **đã sửa** | 1 | 69 × 69 × 42 |
+| `vo-than-goc.stl` | Thân — **bản gốc, chưa sửa** | 1 | 109 × 69 × 42 |
 | `vo-dau.stl` | Đầu | 1 | 69 × 69 × 41,7 |
 | `vo-dui.stl` | Đùi | 2 | 17 × 41,5 × 40 |
 | `vo-ban-chan.stl` | Bàn chân | 2 | 42 × 64 × 27 |
@@ -38,9 +38,33 @@ Chỉ để ướm thử trong `viewer.html`, không in.
 | `lk-loa.stl` | Loa 8Ω 2W | 25,0 × 15,0 × 5,0 |
 | `lk-servo.stl` | Servo SG90 | 32,2 × 29,8 × 12,5 |
 
-## Đã sửa gì trên thân
+## Vì sao ver2 dùng thân BẢN GỐC
 
-`vo-than-goc.stl` là bản gốc chưa đụng tới, giữ lại để đối chiếu.
+Ver1 từng cắt bản gốc thành `vo-than.stl` (69mm, bỏ giàn đỡ tay, thu cửa sổ
+OLED). Ver2 **quay lại bản gốc** vì đây là con robot khác: giữ giàn đỡ tay, và
+dùng **màn hình 1.3 inch** thay cho 0.96 inch.
+
+Cửa sổ gốc hoá ra lại hợp với màn to hơn. Nó bị thu nhỏ ở ver1 chính vì **quá
+rộng so với bo 0.96 inch** nên màn rơi lọt — nhưng so với bo 1.3 inch thì vừa:
+
+| | Cửa sổ gốc | Bo 0.96" | Bo 1.3" |
+|---|---|---|---|
+| Kích thước | 30,2 × 30,8 | 27,6 × 27,8 | **35,4 × 33,5** |
+| Gờ đỡ còn lại | — | **âm — lọt qua** | 2,6mm ngang / 1,35mm dọc |
+
+Vùng hiển thị của màn 1.3" là 29,4 × 14,7mm, lọt trong cửa sổ 30,2 × 30,8 nên
+thấy trọn mặt kính.
+
+> ⚠️ **CHƯA SỬA, cần làm trước khi gửi in:** bản gốc có **1.362 điểm vách trước
+> dày 0,5–0,8mm** (hai dải gờ đỡ OLED ở `z −36..−33` và `z −2..−1`). Bên in 3D
+> đã báo chỗ này quá mỏng hồi làm ver1. Cách xử lý ở ver1 là **đắp thêm khung
+> dày 3,0mm** lên vách trước, đưa số điểm mỏng từ 1.362 xuống 13 — ver2 cần
+> làm tương tự nhưng chừa lỗ theo kích thước màn 1.3 inch.
+
+## Ver1 đã sửa gì trên thân (để tham khảo)
+
+Phần dưới ghi lại các thay đổi tạo ra `vo-than.stl` của ver1. Ver2 không dùng
+tệp đó, nhưng bài học về cách sửa lưới thì vẫn áp dụng.
 
 **1. Thu cửa sổ OLED: `30,2 × 30,8` → `26,0 × 20,0mm`, và làm dày vách quanh đó**
 
@@ -93,7 +117,7 @@ Thân thật chỉ rộng 69mm (`|x| ≤ 34,5`); toàn bộ phần từ 36 đế
 ```
 tệp              tam giác  cạnh hở  suy biến  phi-mf   khối rời
 ────────────────────────────────────────────────────────────────
-vo-than.stl        111.550      32       122      69      1
+vo-than-goc.stl    140.088       0         0       1      1
 vo-dau.stl         103.634       0         0       0      1
 vo-dui.stl         121.794       0         0       0      2
 vo-ban-chan.stl     43.240       0         0       0      2
@@ -104,11 +128,15 @@ vo-nut-boot.stl     10.748       0         0       0      1
 **`vo-dui.stl` và `vo-ban-chan.stl` mỗi tệp đã chứa sẵn 2 bản.** In một lần
 mỗi tệp là đủ cả đôi; đặt "2 cái" sẽ ra 4 cái.
 
-`vo-than.stl` báo 32 cạnh hở nhưng **không thủng thật**: bắn 4.000 tia xuyên
-ngang, không tia nào cắt lẻ lần. Đó là các đỉnh tách ở mức dưới micron tại mặt
-cắt giàn tay — hàn lại ở dung sai `0,01mm` thì còn 1, ở `0,1mm` thì còn 0. 69
-cạnh phi-manifold là chỗ khung cửa sổ cộng thêm chồng lên vách cũ, đúng như
-mong đợi khi hợp khối bằng cách ghép tam giác.
+**Thân bản gốc của ver2 là lưới sạch:** 0 cạnh hở, 0 tam giác suy biến, 1 khối
+liền, chỉ 1 cạnh phi-manifold. Đây là lợi thế thật của việc bắt đầu lại từ bản
+gốc — `vo-than.stl` của ver1 sau khi phẫu thuật lưới có 32 cạnh hở, 122 tam
+giác suy biến và tách thành 2 khối rời.
+
+> Lưới sạch **không** có nghĩa là in được ngay. Vấn đề còn lại của ver2 là
+> **độ dày**, không phải tô-pô: 1.362 điểm vách trước còn 0,5–0,8mm (xem cảnh
+> báo ở mục trên). Hai phép kiểm này đo hai thứ khác nhau — lưới kín hay hở, và
+> nhựa đủ dày hay không.
 
 Còn **một vùng 7mm² dày 0,40mm** ở `x −24,4..−20,4`, `z −32,4..−31,2`. Chỗ này
 **có sẵn trong bản gốc**, không phải do sửa; bên in xem bản trước cũng không
