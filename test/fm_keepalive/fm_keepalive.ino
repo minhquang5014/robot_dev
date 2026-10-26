@@ -1,86 +1,148 @@
 /*
-  Test mach sac + tang ap FM5324GA voi ESP32 WROOM: ESP32 "nhan nut K" theo
-  nhip de mach khong tu tat tang ap.
+  Test mach sac + tang ap FM5324GA voi ESP32 WROOM, CHAY BANG PIN, TU GHI LOG.
 
-  DAU NOI (chi 4 thu: pin, FM5324GA, ESP32, 1 day K)
+  ESP32 tu "nhan nut K" theo nhip, do duong 5V qua cau chia ap, va ghi moi thu
+  vao FLASH (LittleFS) — khong phai RAM: RAM mat sach khi mat dien, ma luc can bat
+  nhat chinh la luc mach FM tat lam ESP32 mat dien. Cam USB lai de lay log.
+
+  DAU NOI
 
       Pin LiPo (+) -> B+     Pin LiPo (-) -> B-
       FM5324GA 5V  -> ESP32 chan 5V (VIN)
       FM5324GA GND -> ESP32 GND
       FM5324GA K   -> ESP32 GPIO18      (noi thang — K luc nghi chi ~0.8V)
                    Board ESP32-D0WD-V3 dang dung khong ra chan GPIO16/17 (TX2/RX2)
-      (tuy chon) 5V -[10k]-+-[10k]- GND, diem giua -> GPIO34
+      5V -[10k]-+-[10k]- GND, diem giua -> GPIO34
 
-  Bat lan dau: cham K xuong GND bang day mot cai (ESP32 chua co dien thi chua
-  tu nhan duoc). Tu do ESP32 tu nhan K moi KEEPALIVE_MS.
+  CACH TEST
+      1. Nap sketch (co USB). Go `c` de xoa log cu neu muon.
+      2. Rut USB. Mach FM phai dang bat (den ESP32 nhay) — neu tat thi cham K
+         xuong GND mot cai.
+      3. De chay 15-20 phut bang pin.
+      4. Cam USB, go `d` de in log.
 
-  KHONG cam cap USB vao may tinh luc test bang pin: cong USB cung cap 5V, mach
-  FM co tat thi ESP32 van song nho USB -> ket qua sai. Nhin DEN LED thay log:
+  MOI DONG LOG
+      S<phien> <giay>s  V=<5V>  [su kien]
+      phien = so lan ESP32 khoi dong (luu trong flash). Phien moi xuat hien giua
+      chung = ESP32 da mat dien roi co lai — tuc mach FM da tat.
+      Khong co dong ho that (khong mang) nen thoi gian tinh tu luc bat.
 
-      nhay 1 lan / giay         ESP32 dang song
-      nhay nhanh 3 lan          vua "nhan K"
-      den tat han               mach FM da tat 5V (hoac het pin)
+  DEN LED
+      nhay 1 lan / giay = dang song,  nhay nhanh 3 lan = vua nhan K
 
-  Hai che do, chon bang KEEPALIVE_MS:
-      15000   ESP32 nhan K moi 15 giay — thu xem co giu duoc 5V khong
-      0       KHONG nhan — thu xem rieng ESP32 lam tai thi mach co tu tat khong
-
-  Cam USB vao (khong co pin) de xem Serial 115200: in moi lan nhan K va dien
-  ap 5V neu co noi cau chia ap.
+  LENH SERIAL 115200
+      d  in log      c  xoa log      p  nhan K ngay      a  bat/tat tu nhan K
 */
+#include <LittleFS.h>
+#include <Preferences.h>
 #include <WiFi.h>
+#include <esp_system.h>
 
-#define PIN_K        18     // noi thang chan K, open-drain
-#define PIN_SENSE    34     // ADC1, chi doc — diem giua cau chia ap 10k/10k (tuy chon)
-#define PIN_LED      2      // den co san tren hau het board ESP32 DevKit
+#define PIN_K        18
+#define PIN_SENSE    34     // ADC1, chi doc
+#define PIN_LED      2
 
-const unsigned long KEEPALIVE_MS = 15000;   // 0 = khong nhan K
-const unsigned long PRESS_MS     = 200;     // mot lan "nhan nut"
+unsigned long KEEPALIVE_MS = 15000;   // 0 = khong nhan K
+const unsigned long PRESS_MS = 200;
+const unsigned long LOG_MS   = 5000;  // ghi dien ap moi 5 giay
+const bool LOAD_LIKE_ROBOT   = true;  // bat WiFi quet dinh ky -> ~100 mA nhu robot
 
-// Bat WiFi quet mang dinh ky de ESP32 keo dong ~100 mA nhu luc chay robot that.
-// Chay khong WiFi thi chi ~40 mA — mach FM co the tu tat du robot that thi khong.
-const bool LOAD_LIKE_ROBOT = true;
+const char* LOG = "/fmlog.txt";
+uint32_t session = 0;
+unsigned long lastPress = 0, lastBlink = 0, lastScan = 0, lastLog = 0;
 
-unsigned long lastPress = 0, lastBlink = 0, lastScan = 0;
+float read5V() {
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; i++) mv += analogReadMilliVolts(PIN_SENSE);   // trung binh 8 lan
+  return mv / 8 * 2 / 1000.0;                                          // cau chia doi -> x2
+}
 
-// open-drain: chi KEO XUONG GND hoac THA NOI, khong bao gio day 3.3V vao K
+// Ghi ngay va dong file moi dong: mat dien giua chung thi chi mat dong dang ghi.
+void logLine(const char* event) {
+  char line[96];
+  snprintf(line, sizeof(line), "S%lu %7.1fs  V=%.2f  %s\n",
+           (unsigned long)session, millis() / 1000.0, read5V(), event);
+  File f = LittleFS.open(LOG, FILE_APPEND);
+  if (f) { f.print(line); f.close(); }
+  Serial.print(line);
+}
+
 void pressK() {
   digitalWrite(PIN_K, LOW);
-  pinMode(PIN_K, OUTPUT_OPEN_DRAIN);
+  pinMode(PIN_K, OUTPUT_OPEN_DRAIN);   // chi keo xuong GND, khong bao gio day 3.3V vao K
   digitalWrite(PIN_K, LOW);
   delay(PRESS_MS);
-  pinMode(PIN_K, INPUT);            // tha noi = nha nut
-  for (int i = 0; i < 3; i++) {     // nhay nhanh 3 lan
+  pinMode(PIN_K, INPUT);               // tha noi = nha nut
+  for (int i = 0; i < 3; i++) {
     digitalWrite(PIN_LED, HIGH); delay(60);
     digitalWrite(PIN_LED, LOW);  delay(60);
   }
 }
 
-float read5V() {
-  // cau chia doi: doc x2. analogReadMilliVolts da bu sai so ADC theo chip.
-  return analogReadMilliVolts(PIN_SENSE) * 2 / 1000.0;
+const char* resetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "bat nguon (mat dien roi co lai)";
+    case ESP_RST_BROWNOUT: return "SUT AP (brownout)";
+    case ESP_RST_SW:       return "reset phan mem";
+    case ESP_RST_EXT:      return "reset ngoai / nut EN";
+    case ESP_RST_PANIC:    return "loi chuong trinh";
+    default:               return "khac";
+  }
+}
+
+void dumpLog() {
+  Serial.println("=== LOG BAT DAU ===");
+  File f = LittleFS.open(LOG, FILE_READ);
+  if (f) { while (f.available()) Serial.write(f.read()); f.close(); }
+  Serial.println("=== LOG KET THUC ===");
 }
 
 void setup() {
-  pinMode(PIN_K, INPUT);            // luc khoi dong: tha noi, khong "nhan nham"
+  pinMode(PIN_K, INPUT);               // luc khoi dong: tha noi, khong "nhan nham"
   pinMode(PIN_LED, OUTPUT);
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n### fm_keepalive ###");
-  Serial.printf("nhan K moi %lu ms (0 = khong nhan), tai giong robot: %s\n",
-                KEEPALIVE_MS, LOAD_LIKE_ROBOT ? "co" : "khong");
+  analogSetPinAttenuation(PIN_SENSE, ADC_11db);
+
+  LittleFS.begin(true);                // lan dau: tu format
+  Preferences p;
+  p.begin("fmtest", false);
+  session = p.getUInt("session", 0) + 1;
+  p.putUInt("session", session);
+  p.end();
+
+  char ev[64];
+  snprintf(ev, sizeof(ev), "=== KHOI DONG: %s ===", resetReason());
+  logLine(ev);
+
   if (LOAD_LIKE_ROBOT) WiFi.mode(WIFI_STA);
-  analogSetPinAttenuation(PIN_SENSE, ADC_11db);   // doc duoc toi ~3.1V
+  lastPress = lastLog = millis();
 }
 
 void loop() {
   unsigned long now = millis();
 
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'd') dumpLog();
+    if (c == 'c') { LittleFS.remove(LOG); Serial.println(">> da xoa log"); }
+    if (c == 'p') { pressK(); logLine("NHAN K (lenh tay)"); }
+    if (c == 'a') {
+      KEEPALIVE_MS = KEEPALIVE_MS ? 0 : 15000;
+      lastPress = now;
+      logLine(KEEPALIVE_MS ? "tu nhan K: BAT" : "tu nhan K: TAT");
+    }
+  }
+
   if (KEEPALIVE_MS && now - lastPress >= KEEPALIVE_MS) {
     lastPress = now;
     pressK();
-    Serial.printf("[%6lus] nhan K   5V ~ %.2f V (chi dung neu co cau chia ap)\n",
-                  now / 1000, read5V());
+    logLine("NHAN K");
+  }
+
+  if (now - lastLog >= LOG_MS) {
+    lastLog = now;
+    logLine("");
   }
 
   if (now - lastBlink >= 1000) {
@@ -90,6 +152,6 @@ void loop() {
 
   if (LOAD_LIKE_ROBOT && now - lastScan >= 10000) {
     lastScan = now;
-    WiFi.scanNetworks(true);        // quet bat dong bo, khong chan loop
+    WiFi.scanNetworks(true);
   }
 }
