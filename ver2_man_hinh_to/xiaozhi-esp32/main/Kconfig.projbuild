@@ -175,6 +175,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_BREAD_COMPACT_S3_OTTO
         bool "Bread Compact ESP32-S3 DevKitC-1 + Otto 2 chan"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_S3_OTTO_LCD
+        bool "ESP32-S3 + Otto 2 chan + man mau ST7789 240x240 (ver2)"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_BREAD_COMPACT_ML307
         bool "Bread Compact ML307/EC801E 4G (面包板)"
         depends on IDF_TARGET_ESP32S3

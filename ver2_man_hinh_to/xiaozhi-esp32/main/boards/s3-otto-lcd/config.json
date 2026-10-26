@@ -1,0 +1,10 @@
+{
+    "type": "s3-otto-lcd",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "s3-otto-lcd",
+            "sdkconfig_append": []
+        }
+    ]
+}
