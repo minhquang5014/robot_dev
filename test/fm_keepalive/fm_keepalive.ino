@@ -7,7 +7,8 @@
       Pin LiPo (+) -> B+     Pin LiPo (-) -> B-
       FM5324GA 5V  -> ESP32 chan 5V (VIN)
       FM5324GA GND -> ESP32 GND
-      FM5324GA K   -> ESP32 GPIO17      (noi thang — K luc nghi chi ~0.8V)
+      FM5324GA K   -> ESP32 GPIO18      (noi thang — K luc nghi chi ~0.8V)
+                   Board ESP32-D0WD-V3 dang dung khong ra chan GPIO16/17 (TX2/RX2)
       (tuy chon) 5V -[10k]-+-[10k]- GND, diem giua -> GPIO34
 
   Bat lan dau: cham K xuong GND bang day mot cai (ESP32 chua co dien thi chua
@@ -29,7 +30,7 @@
 */
 #include <WiFi.h>
 
-#define PIN_K        17     // noi thang chan K, open-drain
+#define PIN_K        18     // noi thang chan K, open-drain
 #define PIN_SENSE    34     // ADC1, chi doc — diem giua cau chia ap 10k/10k (tuy chon)
 #define PIN_LED      2      // den co san tren hau het board ESP32 DevKit
 
