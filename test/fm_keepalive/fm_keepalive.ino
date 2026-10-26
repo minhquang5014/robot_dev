@@ -42,7 +42,7 @@
 #define PIN_SENSE    34     // ADC1, chi doc
 #define PIN_LED      2
 
-unsigned long KEEPALIVE_MS = 15000;   // 0 = khong nhan K
+unsigned long KEEPALIVE_MS = 15000;   // 0 = khong nhan K — da thu 26/10: mach FM tu tat
 const unsigned long PRESS_MS = 200;
 const unsigned long LOG_MS   = 5000;  // ghi dien ap moi 5 giay
 const bool LOAD_LIKE_ROBOT   = true;  // bat WiFi quet dinh ky -> ~100 mA nhu robot

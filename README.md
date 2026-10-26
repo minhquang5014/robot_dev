@@ -134,7 +134,20 @@ ESP32-S3 GPIO2 ─────── chân K của FM5324GA
 - Lúc ESP32 khởi động GPIO2 mặc định thả nổi nên không bị "nhấn nhầm".
 - GPIO2 đang trống trên board S3 (soát với `bread-compact-s3-otto/config.h`).
 
-Chỉ cần nối dây này **khi** mạch tự tắt lúc có robot làm tải. Giữ được 5V thì không nối gì.
+**Dây K là BẮT BUỘC** — đo ngày 26/10/2026 trên ESP32 WROOM chạy pin, sketch
+`test/fm_keepalive` (tự ghi log vào flash):
+
+| Thử | Kết quả |
+|---|---|
+| ESP32 nhấn K mỗi 15 s (200 ms) | giữ 5V **33,2 phút liền**, 132 lần nhấn, 4,93-5,08V (TB 5,04V), không mất điện lần nào |
+| Không nhấn K, ESP32 làm tải (WiFi quét định kỳ, ~100 mA) | mạch **tự tắt**, ngõ ra tụt ~1,5V, ESP32 tắt theo |
+
+→ Nhấn ngắn khi đang bật **không** làm tắt (chip không hiểu là bật/tắt), và có tải vẫn tự tắt —
+nên firmware robot phải nhấn K theo nhịp. Board ESP32 cũ (WROOM) dùng GPIO18 vì không ra chân
+TX2/RX2; trên board cũ GPIO18 trùng `LAMP_GPIO`, lắp vào robot thì phải dời một trong hai.
+
+**Cắm USB lúc đang chạy pin làm board reset liên tục** (log đầy `POWERON_RESET`) — hai nguồn 5V
+đè nhau. Rút pin trước khi cắm USB.
 
 **Đo điện áp pin — tuỳ chọn, có thể bỏ.** Chỉ để báo pin yếu lên OLED; không có thì robot vẫn
 chạy, hết pin thì tắt phụt (mạch bảo vệ của pin ngắt ~3,0V, vẫn an toàn). 4 đèn LED trên
