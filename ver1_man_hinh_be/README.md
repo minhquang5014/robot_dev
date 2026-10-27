@@ -163,6 +163,30 @@ Chân ADC của ESP32 chỉ đọc tới ~3V, nối thẳng 5V là hỏng. Hai �
 5V đọc ra 2,5V, trong code nhân 2. Đọc ~1,9V (tức 3,8V) = tăng áp đã tắt. Rút ~0,25 mA
 liên tục; thêm tụ 100 nF từ điểm giữa xuống GND cho số đọc ổn định.
 
+#### Nút nguồn (kế hoạch, CHƯA làm)
+
+```
+                 ┌──── ESP32-S3 GPIO2   (firmware tự nhấn 200 ms mỗi 15 s, open-drain)
+FM5324GA K ──────┤
+                 └──── NÚT NHẤN ──── GND (người dùng bấm)
+```
+
+- Nút và GPIO2 nối **song song**: cả hai chỉ kéo K xuống GND, GPIO2 open-drain không bao giờ
+  đẩy điện lên, nên không xung đột.
+- **Bật:** robot tắt thì ESP32 không có điện để tự nhấn — người dùng bấm nút một cái, mạch FM
+  bật 5V, ESP32 khởi động rồi tự nhấn giữ mạch thức (firmware `InitializePowerKey()`).
+- **Tắt:** hàn cứng K xuống GND thì vài phút sau mạch tắt, nên nhiều khả năng **giữ nút lâu**
+  là tắt — một nút làm cả bật lẫn tắt. Chưa đo phải giữ bao lâu.
+- **Cắm sạc:** nhiều module loại này tự bật 5V khi có nguồn Type-C — nếu FM5324GA cũng vậy thì
+  hết pin chỉ cần cắm sạc là robot sống lại. Chưa thử.
+
+Robot tự tắt khi chạy pin lâu: đo ngay điện áp hai dây pin. ≥3,7V = mạch FM tự tắt (firmware
+chưa nhấn K — bản 27/10 mới có, chưa nạp được vì mạng công ty chặn registry Espressif).
+≤3,0V = hết pin, mạch bảo vệ của pin ngắt — đúng và an toàn, cắm sạc.
+
+Cần thử: (1) nạp firmware có nhấn K, chạy pin ~1 giờ; (2) cắm sạc lúc robot đang tắt; (3) giữ
+K xuống GND 2 / 3 / 5 giây xem bao lâu thì tắt.
+
 #### Đèn LED khi sạc
 
 Cắm sạc thấy sáng 3/4 đèn dù pin đang ~3,0V là bình thường: lúc có dòng sạc, điện áp ở cực
