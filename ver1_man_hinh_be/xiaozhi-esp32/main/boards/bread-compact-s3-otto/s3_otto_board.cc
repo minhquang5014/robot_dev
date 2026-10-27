@@ -14,6 +14,7 @@
 #include "../bread-compact-esp32/otto_controller_simple.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
@@ -26,7 +27,53 @@ private:
     Button touch_button_;
     Button asr_button_;
 
+    esp_timer_handle_t power_key_timer_ = nullptr;
+    esp_timer_handle_t power_key_release_timer_ = nullptr;
+
     i2c_master_bus_handle_t display_i2c_bus_;
+
+    // Giu module FM5324GA khong tu tat: nhan K mot nhip ngan moi
+    // POWER_KEY_INTERVAL_MS. Chay bang esp_timer nen khong chan task nao, va
+    // khoi dong truoc moi thu khac de mach khong kip tu tat luc dang boot.
+    // Open-drain: muc 0 = keo K xuong GND (nhan), muc 1 = tha noi (nha).
+    void InitializePowerKey() {
+        gpio_set_level(POWER_KEY_GPIO, 1);  // dat truoc khi bat chan: khong "nhan nham"
+        gpio_config_t io_conf = {
+            .pin_bit_mask = 1ULL << POWER_KEY_GPIO,
+            .mode = GPIO_MODE_OUTPUT_OD,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        ESP_ERROR_CHECK(gpio_config(&io_conf));
+        gpio_set_level(POWER_KEY_GPIO, 1);
+
+        esp_timer_create_args_t release_args = {
+            .callback = [](void*) { gpio_set_level(POWER_KEY_GPIO, 1); },
+            .arg = nullptr,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "power_key_up",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&release_args, &power_key_release_timer_));
+
+        esp_timer_create_args_t press_args = {
+            .callback =
+                [](void* arg) {
+                    gpio_set_level(POWER_KEY_GPIO, 0);
+                    esp_timer_start_once(static_cast<esp_timer_handle_t>(arg),
+                                         POWER_KEY_PRESS_MS * 1000);
+                },
+            .arg = power_key_release_timer_,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "power_key",
+            .skip_unhandled_events = true,
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&press_args, &power_key_timer_));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(power_key_timer_, POWER_KEY_INTERVAL_MS * 1000));
+        ESP_LOGI(TAG, "Power key keepalive: GPIO%d, %d ms moi %d ms", POWER_KEY_GPIO,
+                 POWER_KEY_PRESS_MS, POWER_KEY_INTERVAL_MS);
+    }
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
     Display* display_ = nullptr;
@@ -135,6 +182,7 @@ public:
           boot_button_(BOOT_BUTTON_GPIO),
           touch_button_(TOUCH_BUTTON_GPIO),
           asr_button_(ASR_BUTTON_GPIO) {
+        InitializePowerKey();
         InitializeDisplayI2c();
         InitializeSsd1306Display();
         InitializeButtons();

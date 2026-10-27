@@ -61,6 +61,16 @@
 
 #define LAMP_GPIO GPIO_NUM_18
 
+// Chan K cua module sac + tang ap FM5324GA (chay bang pin). Mach tu tat tang ap
+// khi khong co ai "nhan nut", nen firmware nhan K theo nhip. Do ngay 26/10/2026
+// (sketch test/fm_keepalive): nhan 200 ms moi 15 s giu 5V 33 phut lien, 132 lan
+// nhan khong lan nao lam tat — chip khong hieu nhan ngan la bat/tat.
+// K luc nghi chi ~0.8V nen noi thang, che do open-drain: chi keo xuong GND hoac
+// tha noi, khong bao gio day 3.3V vao K. Khong lap module FM thi chan nay bo trong.
+#define POWER_KEY_GPIO          GPIO_NUM_2
+#define POWER_KEY_INTERVAL_MS   15000
+#define POWER_KEY_PRESS_MS      200
+
 // 4 servo chan. Giu nguyen 13 va 21 nhu ban ESP32 cu de chi phai doi 2 soi day;
 // 22 va 23 thi bat buoc phai doi vi hai chan do khong ton tai tren S3.
 #define OTTO_LEFT_LEG_GPIO   GPIO_NUM_13   // giu nguyen
