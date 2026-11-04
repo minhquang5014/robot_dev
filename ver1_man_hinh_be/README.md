@@ -163,29 +163,38 @@ Chân ADC của ESP32 chỉ đọc tới ~3V, nối thẳng 5V là hỏng. Hai �
 5V đọc ra 2,5V, trong code nhân 2. Đọc ~1,9V (tức 3,8V) = tăng áp đã tắt. Rút ~0,25 mA
 liên tục; thêm tụ 100 nF từ điểm giữa xuống GND cho số đọc ổn định.
 
-#### Nút nguồn (kế hoạch, CHƯA làm)
+#### Công tắc nguồn — nút nhấn chết ở NGÕ RA 5V (đấu ngày 04/11/2026)
 
 ```
-                 ┌──── ESP32-S3 GPIO2   (firmware tự nhấn 200 ms mỗi 15 s, open-drain)
-FM5324GA K ──────┤
-                 └──── NÚT NHẤN ──── GND (người dùng bấm)
+Pin (+) ── B+ ┐
+Pin (−) ── B− ┤ FM5324GA ── 5V ──[NÚT NHẤN CHẾT]──► đường 5V robot (ESP32, servo, loa)
+              │             GND ─────────────────► GND chung
+              └── K ◄────── ESP32-S3 GPIO2  (firmware nhấn ngay lúc khởi động + mỗi 15 s)
+                            ESP32-S3 GPIO1  ◄── cầu chia áp (feedback)
 ```
 
-- Nút và GPIO2 nối **song song**: cả hai chỉ kéo K xuống GND, GPIO2 open-drain không bao giờ
-  đẩy điện lên, nên không xung đột.
-- **Bật:** robot tắt thì ESP32 không có điện để tự nhấn — người dùng bấm nút một cái, mạch FM
-  bật 5V, ESP32 khởi động rồi tự nhấn giữ mạch thức (firmware `InitializePowerKey()`).
-- **Tắt:** hàn cứng K xuống GND thì vài phút sau mạch tắt, nên nhiều khả năng **giữ nút lâu**
-  là tắt — một nút làm cả bật lẫn tắt. Chưa đo phải giữ bao lâu.
-- **Cắm sạc:** nhiều module loại này tự bật 5V khi có nguồn Type-C — nếu FM5324GA cũng vậy thì
-  hết pin chỉ cần cắm sạc là robot sống lại. Chưa thử.
+Vì sao công tắc ở ngõ ra 5V, không ở dây đỏ của pin:
 
-Robot tự tắt khi chạy pin lâu: đo ngay điện áp hai dây pin. ≥3,7V = mạch FM tự tắt (firmware
-chưa nhấn K — bản 27/10 mới có, chưa nạp được vì mạng công ty chặn registry Espressif).
-≤3,0V = hết pin, mạch bảo vệ của pin ngắt — đúng và an toàn, cắm sạc.
+| Yêu cầu | Công tắc ở ngõ ra 5V | Công tắc ở dây pin |
+|---|---|---|
+| Tắt là ngắt toàn bộ robot | ✅ | ✅ |
+| Hết pin, tắt công tắc vẫn sạc được | ✅ pin vẫn nối mạch FM | ❌ pin tách khỏi mạch sạc |
 
-Cần thử: (1) nạp firmware có nhấn K, chạy pin ~1 giờ; (2) cắm sạc lúc robot đang tắt; (3) giữ
-K xuống GND 2 / 3 / 5 giây xem bao lâu thì tắt.
+Cái giá: lúc tắt mạch FM vẫn nối pin, nhưng đã tự tắt tăng áp nên hao rất ít.
+
+**Chỗ phải thử — lúc bấm bật:** công tắc tắt thì không có tải, mạch FM tự tắt tăng áp; bấm bật lên
+ngõ ra chỉ có **~3,8V** điện pin lọt qua. Firmware (bản 04/11) **nhấn K ngay lúc khởi động** thay vì
+đợi 15 s, để ESP32 khởi động bằng 3,8V đó rồi tự bật tăng áp. Chưa thử được (chưa build — mạng
+công ty chặn registry Espressif). Nếu ESP32 không khởi động nổi ở ~3,8V (sụt áp, reset liên tục)
+thì thêm **nút nhấn nhả từ K xuống GND** để người dùng bấm bật.
+
+**Cắm sạc lúc đang tắt:** nhiều module loại này tự bật 5V khi có nguồn Type-C — chưa thử với FM5324GA.
+
+**Robot tự tắt khi chạy pin lâu:** đo ngay điện áp hai dây pin. ≥3,7V = mạch FM tự tắt (kiểm tra
+firmware đã có phần nhấn K chưa). ≤3,0V = hết pin, mạch bảo vệ của pin ngắt — đúng và an toàn.
+
+**GPIO1 (feedback):** nối cầu chia áp vào **B+** (100 kΩ / 100 kΩ) thì biết % pin; vào 5V thì chỉ
+biết mạch FM bật hay tắt. Firmware **chưa đọc GPIO1**.
 
 #### Đèn LED khi sạc
 

@@ -70,6 +70,13 @@ private:
             .skip_unhandled_events = true,
         };
         ESP_ERROR_CHECK(esp_timer_create(&press_args, &power_key_timer_));
+
+        // Nhan NGAY mot lan luc khoi dong, khong doi 15 s. Cong tac nguon (nut
+        // nhan chet) dat o NGO RA 5V cua FM: luc cong tac tat, mach FM tu tat
+        // tang ap, nen bat cong tac len chi co ~3.8V dien pin lot qua. ESP32 khoi
+        // dong bang muc do roi phai nhan K ngay de bat tang ap — doi 15 s thi
+        // WiFi bat len rat de sut ap va reset truoc khi kip nhan.
+        press_args.callback(power_key_release_timer_);
         ESP_ERROR_CHECK(esp_timer_start_periodic(power_key_timer_, POWER_KEY_INTERVAL_MS * 1000));
         ESP_LOGI(TAG, "Power key keepalive: GPIO%d, %d ms moi %d ms", POWER_KEY_GPIO,
                  POWER_KEY_PRESS_MS, POWER_KEY_INTERVAL_MS);
