@@ -25,3 +25,12 @@
 *.pyc
 __pycache__/
 .venv/
+
+# ---- KiCad ----
+# Trang thai cua so/zoom cua tung may, khong mang sang may khac duoc
+*.kicad_prl
+# Ban sao luu tu dong va file tam
+*-backups/
+*.kicad_sch-bak
+*.kicad_pcb-bak
+fp-info-cache

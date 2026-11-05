@@ -1,0 +1,17 @@
+(kicad_sch
+	(version 20250114)
+	(generator "eeschema")
+	(generator_version "9.0")
+	(uuid "c0446916-32d5-4609-9fbe-314887739be8")
+	(paper "A3")
+	(title_block
+		(title "Otto ver2 — mach chinh")
+		(rev "A")
+		(comment 1 "ESP32-S3-WROOM-1 N16R8 + ST7789 240x240 + Otto 2 chan")
+	)
+	(lib_symbols)
+	(sheet_instances
+		(path "/" (page "1"))
+	)
+	(embedded_fonts no)
+)
