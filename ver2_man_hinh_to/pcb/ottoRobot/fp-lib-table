@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "ottoRobot")(type "KiCad")(uri "${KIPRJMOD}/ottoRobot.pretty")(options "")(descr "Footprints rebuilt from original pad data"))
+)
