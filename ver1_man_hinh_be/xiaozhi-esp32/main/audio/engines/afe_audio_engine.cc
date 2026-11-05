@@ -196,6 +196,11 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     }
 
     if (wake_detector_ == WakeDetector::kWakeNet) {
+#if CONFIG_AFE_WAKE_WORD_THRESHOLD > 0
+        // index 1 = wakenet thứ nhất (esp_afe_sr_iface.h)
+        afe_iface_->set_wakenet_threshold(afe_data_, 1, CONFIG_AFE_WAKE_WORD_THRESHOLD / 100.0f);
+        ESP_LOGI(TAG, "WakeNet threshold: %.2f", CONFIG_AFE_WAKE_WORD_THRESHOLD / 100.0f);
+#endif
         afe_iface_->disable_wakenet(afe_data_);
     }
     if (codec_->input_reference()) {

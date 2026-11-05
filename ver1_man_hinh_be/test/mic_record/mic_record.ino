@@ -9,12 +9,20 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
 
+// Chan theo board: S3 (ver1 hien tai, bread-compact-s3-otto/config.h) hoac ESP32 cu.
+// Tren S3 nap voi CDCOnBoot=cdc de Serial di qua cong USB goc (/dev/cu.usbmodem*).
+#if CONFIG_IDF_TARGET_ESP32S3
+#define MIC_SCK   5
+#define MIC_WS    4
+#define MIC_SD    6
+#else
 #define MIC_SCK   26
 #define MIC_WS    25
 #define MIC_SD    32
+#endif
 #define SR        16000
 #define BUF_LEN   512
-#define REC_SECS  5
+#define REC_SECS  8
 
 static int32_t rawBuf[BUF_LEN];
 static int16_t pcmBuf[BUF_LEN];

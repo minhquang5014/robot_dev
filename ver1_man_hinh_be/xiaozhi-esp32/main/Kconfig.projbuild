@@ -943,6 +943,18 @@ config CUSTOM_WAKE_WORD_THRESHOLD
     help
         Custom Wake Word Threshold, range 1-99, the smaller the more sensitive, default 20
 
+config AFE_WAKE_WORD_THRESHOLD
+    int "AFE WakeNet detection threshold (x100, 0 = model default)"
+    default 55 if BOARD_TYPE_BREAD_COMPACT_S3_OTTO
+    default 0
+    range 0 99
+    depends on USE_AFE_WAKE_WORD
+    help
+        Threshold passed to afe->set_wakenet_threshold(), in percent. Lower wakes more
+        easily but false-triggers more often. 0 keeps the threshold baked into the model
+        (e.g. wn9_sophia_tts: 0.647). bread-compact-s3-otto lowers it to 0.55: a
+        Vietnamese speaker saying the English name rarely crossed 0.647 (05/11/2026).
+
 config SEND_WAKE_WORD_DATA
     bool "Send Wake Word Data"
     default y
